@@ -110,7 +110,7 @@ echo "LABRAT pipeline finished successfully! $(date)"
 
 ############
 
-ython3 ../LABRAT-master/LABRAT_dm6annotation1.py --mode calculatepsi --salmondir salmondir/ --sampconds sampconds --conditionA FR1 --conditionB ZI --gff ../LABRAT-master/annot/Drosophila_melanogaster.BDGP6.88.chr.gff3 --librarytype 3pseq 
+python3 ../LABRAT-master/LABRAT_dm6annotation1.py --mode calculatepsi --salmondir salmondir/ --sampconds sampconds --conditionA FR1 --conditionB ZI --gff ../LABRAT-master/annot/Drosophila_melanogaster.BDGP6.88.chr.gff3 --librarytype 3pseq 
 /home/george/miniconda3/envs/labrat/lib/python3.6/site-packages/statsmodels/tools/_testing.py:19: FutureWarning: pandas.util.testing is deprecated. Use the functions in the public API at pandas.testing instead.
   import pandas.util.testing as tm
 Calculating position factors for every transcript...
