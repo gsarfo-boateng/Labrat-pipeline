@@ -1,0 +1,2165 @@
+---
+title: "3UTR"
+author: "George Boateng-Sarfo"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(ggrepel)
+library(tidyverse)
+library(tidyr)
+library(ggvenn)
+library(ggpubr)
+library(ggdist)
+```
+
+
+We used LABRAT to assess alternative 3’ UTR usage in dm6 RNA-seq data. LABRAT quantifies APA events by comparing the expression of the final two exons of every expressed transcript and calculating a ψ value that relates relative APA site usage (https://github.com/TaliaferroLab/LABRAT/). To simplify LABRAT output, only gene models with two APA isoforms were considered. For these genes, ψ values of 0 indicate exclusive usage of the proximal APA site while ψ values of 1 indicate exclusive usage of the downstream APA site.
+
+To define tandem UTR and ALE gene models, LABRAT observes the isoform structures at the 3’ end of a gene. If all APA sites are contained within the same exon, then the structure in tandem UTR. If all APA sites are contained within different exons, then the structure is ALE. If a gene has more than two APA sites, it is possible for the gene to fit into neither classification. In these cases, LABRAT assigns the gene to have a “mixed” structure. These genes were not considered in following analyses.
+
+To define genes that change their APA usage through neuronal differentiation by using more downstream APA sites, we utilized standard k-means clustering. Genes with changing 3’ end usage across timepoints were clustered by their mean ψ value revealing a distinct cluster of genes with increasing ψ. These genes were termed as having “neuronally restricted” (NR) long isoforms. These include 706 genes with shifts towards longer 3’ UTRs within terminal 3’ UTRs (TUTR), 269 genes with shifts towards distal alternative last exons (ALE), and 15 genes with mixed TUTR/ALE profiles; the small latter class was not considered further in our analysis. A control group of genes was defined as being expressed in the later differentiation time points (Day 47, 63, and 77) but either had no change in ψ or showed decreasing ψ values across the differentiation time course.
+
+
+```{r}
+# Load necessary libraries
+
+
+# --- FILE PATHS ---
+#labrat_file <- "~/Dropbox/3UTR/ZI_numberofposfactors.txt"
+#gff3_file <- "/media/george/Extreme SSD/3UTR_RNA_Seq/LABRAT-master/annot/Drosophila_melanogaster.BDGP6.88.chr.gff3"
+
+
+# --- 1. Read LABRAT output with transcript IDs ---
+#labrat <- read_tsv(labrat_file, col_types = cols())
+
+# Extract transcript IDs from 'txids' column
+#labrat_txids <- labrat %>%
+#  pull(txids) %>%
+#  str_split("_") %>%        # split at underscores
+#  unlist() %>%
+#  str_trim() %>%
+#  unique()
+
+#cat("Total unique LABRAT transcripts:", length(labrat_txids), "\n")
+
+# --- 2. Parse GFF3 annotation file ---
+
+# Read non-header lines
+gff3_lines <- readLines(gff3_file)
+gff3_data <- gff3_lines[!grepl("^#", gff3_lines)]
+gff3_split <- str_split_fixed(gff3_data, "\t", 9)
+colnames(gff3_split) <- c("seqid", "source", "type", "start", "end", "score", "strand", "phase", "attributes")
+gff3_df <- as_tibble(gff3_split)
+
+# --- 3. Get all GFF3 transcript IDs ---
+all_gff3_transcripts <- gff3_df %>%
+  dplyr::filter(type == "transcript") %>%
+  mutate(transcript_id = str_extract(attributes, "ID=transcript:FBtr[0-9]+"),
+         transcript_id = str_remove(transcript_id, "ID=transcript:")) %>%
+  dplyr::filter(!is.na(transcript_id)) %>%
+  pull(transcript_id) %>%
+  unique()
+
+cat("Total transcripts in GFF3:", length(all_gff3_transcripts), "\n")
+
+# --- 4. Get transcripts with 3′UTR annotations ---
+utr3_transcripts <- gff3_df %>%
+  dplyr::filter(type == "three_prime_UTR") %>%
+  mutate(transcript_id = str_extract(attributes, "Parent=transcript:FBtr[0-9]+"),
+         transcript_id = str_remove(transcript_id, "Parent=transcript:")) %>%
+  dplyr::filter(!is.na(transcript_id)) %>%
+  pull(transcript_id) %>%
+  unique()
+
+cat("Transcripts with 3'UTR annotations:", length(utr3_transcripts), "\n")
+
+# --- 5. Overlap analyses ---
+labrat_in_gff3 <- intersect(labrat_txids, all_gff3_transcripts)
+labrat_not_in_gff3 <- setdiff(labrat_txids, all_gff3_transcripts)
+
+labrat_with_3utr <- intersect(labrat_txids, utr3_transcripts)
+labrat_without_3utr <- setdiff(labrat_txids, utr3_transcripts)
+
+gff3_not_in_labrat <- setdiff(all_gff3_transcripts, labrat_txids)
+
+
+
+# --- 8. Characterize transcripts without 3′UTRs ---
+
+# Filter GFF3 entries that correspond to these transcripts
+transcript_feature_map <- gff3_df %>%
+  dplyr::filter(str_detect(attributes, "Parent=transcript:")) %>%
+  mutate(transcript_id = str_extract(attributes, "Parent=transcript:FBtr[0-9]+"),
+         transcript_id = str_remove(transcript_id, "Parent=transcript:")) %>%
+  dplyr::filter(transcript_id %in% labrat_without_3utr)
+
+# Summarize feature types per transcript
+transcript_feature_summary <- transcript_feature_map %>%
+  group_by(transcript_id) %>%
+  summarise(features = paste(unique(type), collapse = ", ")) %>%
+  ungroup()
+
+# Classify based on presence/absence of specific types
+transcript_feature_summary <- transcript_feature_summary %>%
+  mutate(classification = case_when(
+    str_detect(features, "CDS") & str_detect(features, "five_prime_UTR") ~ "CDS + 5'UTR (missing 3'UTR)",
+    str_detect(features, "CDS") ~ "CDS only",
+    str_detect(features, "five_prime_UTR") ~ "5'UTR only",
+    str_detect(features, "exon") ~ "Exons only (noncoding?)",
+    TRUE ~ "Other / Unclassified"))
+
+# --- 6. Report results ---
+cat("\n=== COMPARISON SUMMARY ===\n")
+cat("LABRAT transcripts in GFF3:", length(labrat_in_gff3), "\n")
+cat("LABRAT transcripts NOT in GFF3:", length(labrat_not_in_gff3), "\n\n")
+
+cat("LABRAT transcripts with 3′UTRs:", length(labrat_with_3utr), "\n")
+cat("LABRAT transcripts WITHOUT 3′UTRs:", length(labrat_without_3utr), "\n\n")
+
+cat("GFF3 transcripts NOT found in LABRAT file:", length(gff3_not_in_labrat), "\n")
+
+
+# Print summary table
+table(transcript_feature_summary$classification)
+# --- 7. Optional: write output files ---
+#writeLines(labrat_not_in_gff3, "labrat_transcripts_missing_from_gff3.txt")
+#writeLines(labrat_with_3utr, "labrat_transcripts_with_3utr.txt")
+#writeLines(labrat_without_3utr, "labrat_transcripts_without_3utr.txt")
+#writeLines(gff3_not_in_labrat, "gff3_transcripts_missing_from_labrat.txt")
+
+```
+
+```{r}
+library(tximport)
+library(DESeq2)
+library(ggplot2)
+library(pheatmap)
+library(TxDb.Dmelanogaster.UCSC.dm6.ensGene)
+library(AnnotationDbi)
+library(ggrepel)
+# Step 1: Create tx2gene mapping from Drosophila TxDb
+txdb <- TxDb.Dmelanogaster.UCSC.dm6.ensGene
+k <- keys(txdb, keytype = "TXNAME")
+tx2gene <- select(txdb, keys = k, columns = "GENEID", keytype = "TXNAME")
+
+# Step 2: Define path to Salmon output directory
+salmon_dir <- "/media/george/Extreme SSD/3UTR_RNA_Seq/fastq/3Seq_Salmon_outputfiles"
+
+# Step 3: Get list of sample directories and build full paths to quant.sf files
+samples <- list.dirs(path = salmon_dir, full.names = FALSE, recursive = FALSE)
+files <- file.path(salmon_dir, samples, "quant.sf")
+names(files) <- samples
+
+# Optional: Check for missing files
+missing <- files[!file.exists(files)]
+if (length(missing) > 0) {
+  stop("Missing quant.sf files:\n", paste(missing, collapse = "\n"))
+}
+
+# Step 4: Import transcript-level quantifications, summarized to gene level
+txi <- tximport(files, type = "salmon", tx2gene = tx2gene)
+
+# Step 5: Create sample metadata (adjust this if you have a metadata table)
+sampleTable <- data.frame(
+  row.names = colnames(txi$counts),
+  condition = gsub("[0-9]+$", "", colnames(txi$counts))  # e.g., "FR109ER1" → "FR109ER"
+)
+
+# Step 6: Build DESeq2 object and normalize
+dds <- DESeqDataSetFromTximport(txi, colData = sampleTable, design = ~ condition)
+dds <- estimateSizeFactors(dds)
+
+# Step 7: Variance-stabilizing transformation
+vsd <- vst(dds, blind = TRUE)
+
+# Step 8: PCA plot
+pcaData <- plotPCA(vsd, intgroup = "condition", returnData = TRUE)
+percentVar <- round(100 * attr(pcaData, "percentVar"))
+
+pcaData$sample <- rownames(pcaData)
+
+custom_colors <- c(
+  "FR109ER"   = "#E41A1C",
+  "FR109NR"   = "#377EB8",
+  "FR112NER"  = "#4DAF4A",
+  "FR112NNR"  = "#984EA3",
+  "FR113NER"  = "#FF7F00",
+  "FR113NNR"  = "#A65628",
+  "ZI274NER"  = "#F781BF",
+  "ZI274NNR"  = "#999999",
+  "ZI31NER"   = "#66C2A5",
+  "ZI31NNR"   = "#FC8D62",
+  "ZI418NER"  = "#8DA0CB",
+  "ZI418NNR"  = "#E78AC3")
+ggplot(pcaData, aes(PC1, PC2, color = condition, label = sample)) +
+  geom_point(size = 3) +
+  geom_text_repel(size = 3, max.overlaps = 100) +
+  scale_color_manual(values = custom_colors) +
+  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar[2], "% variance")) +
+  theme_minimal() +
+  ggtitle("PCA of 3'seq datasets") +  theme_classic()
+
+
+
+library(stringr)
+
+# Extract treatment: "ER" or "NR"
+sampleTable$treatment <- sub(".*(ER|NR)[0-9]?$", "\\1", rownames(sampleTable))
+
+# Extract strain by removing treatment and replicate info
+sampleTable$strain <- sub("(ER|NR)[0-9]*$", "", rownames(sampleTable))
+
+
+dds <- DESeqDataSetFromTximport(txi, colData = sampleTable, design = ~ strain + treatment)
+dds <- estimateSizeFactors(dds)
+vsd <- vst(dds, blind = FALSE)
+
+library(ggrepel)
+
+pcaData <- plotPCA(vsd, intgroup = c("strain", "treatment"), returnData = TRUE)
+percentVar <- round(100 * attr(pcaData, "percentVar"))
+
+pcaData$sample <- rownames(pcaData)
+
+ggplot(pcaData, aes(PC1, PC2, color = treatment, shape = strain, label = sample)) +
+  geom_point(size = 3) +
+  geom_text_repel(size = 2.5, max.overlaps = 100) +
+  scale_color_manual(values = c(ER = "#E41A1C", NR = "#377EB8")) +
+  theme_minimal() +
+  xlab(paste0("PC1: ", percentVar[1], "% variance")) +
+  ylab(paste0("PC2: ", percentVar[2], "% variance")) +
+  ggtitle("PCA Treatment, Shaped by Strain") + theme_classic()
+
+
+```
+
+
+```{r}
+FR109_LABRAT = read.delim("~/Dropbox/3UTR/Labrat_out/LABRAT_FR109NR2_FR109ER2.psis.pval", header = T, sep = "\t")
+FR112_LABRAT = read.delim("~/Dropbox/3UTR/Labrat_out/LABRAT_FR112NNR12_FR112NER12.psis.pval", header = T, sep = "\t")
+FR113_LABRAT = read.delim("~/Dropbox/3UTR/Labrat_out/LABRAT_FR113NNR2_FR113NER3.psis.pval", header = T, sep = "\t")
+
+ZI274_LABRAT = read.delim("~/Dropbox/3UTR/Labrat_out/LABRAT_ZI274NNR1_ZI274NER2.psis.pval", header = T, sep = "\t")
+ZI31_LABRAT = read.delim("~/Dropbox/3UTR/Labrat_out/LABRAT_ZI31NNR1_ZI31NER3.psis.pval", header = T, sep = "\t")
+ZI418_LABRAT = read.delim("~/Dropbox/3UTR/Labrat_out/LABRAT_ZI418NNR1_ZI418NER2.psis.pval", header = T, sep = "\t")
+
+
+
+
+#BC_trail = read.delim("~/Dropbox/3UTR/BC_trail.txt", header = T, sep = "\t")
+#BL_trail = read.delim("~/Dropbox/3UTR/BL_trail.txt", header = T, sep = "\t")
+#hiPC_human = read.delim("~/Dropbox/3UTR/hiPC_human.txt", header = T, sep = "\t")
+#Seung_sup = read.delim("~/Dropbox/3UTR/Seung_Sup_hiPC", header = T, sep = "\t")
+#Labrat_ZI_rep12 = read.delim("/media/george/Extreme SSD/3UTR_RNA_Seq/fastq/salmondir/LABRAT.psis.pval", header = T, sep = "\t")
+#BC_trail$Gene <- sub("\\..*", "", BC_trail$Gene)
+#BL_trail$Gene <- sub("\\..*", "", BL_trail$Gene)
+
+#hiPC_human$Gene <- sub("\\..*", "", hiPC_human$Gene)
+
+
+#write.table(BC_trail, file = "BC_trail.txt", quote = F, sep = "\t", col.names = T, row.names = F)
+#write.table(BL_trail, file = "BL_trail.txt", quote = F, sep = "\t", col.names = T, row.names = F)
+
+
+id_validation <- read.delim("~/Dropbox/3UTR/id_validation_table_35711.txt", header = TRUE, sep = "\t")
+#mouse_ref = read.delim("~/Dropbox/3UTR/MGIBatchReport_20250505_164951.txt", header = TRUE, sep = "\t")
+
+#library(biomaRt)
+
+
+#ensembl_ids <- unique(hiPC_human$Gene)
+
+#ensembl <- useMart("ensembl", dataset = "hsapiens_gene_ensembl")
+
+#gene_map <- getBM(
+#  attributes = c("ensembl_gene_id", "hgnc_symbol"),
+#  filters = "ensembl_gene_id",
+#  values = ensembl_ids,
+#  mart = ensembl)
+
+#BC_trail_mapped <- merge(hiPC_human, gene_map, by.x = "Gene", by.y = "ensembl_gene_id", all.x = TRUE)
+#write.table(BC_trail_mapped, file = "~/Dropbox/3UTR/hiPC_human.txt", quote = F, sep = "\t", col.names = T, row.names = F)
+# View a sample
+#head(BC_trail_mapped)
+```
+
+
+
+```{r}
+#hiPC_human <- hiPC_human %>% rename(Gene = Gene, deltapsi_hiPC = SRR10738246)
+#Seung_sup   <- Seung_sup   %>% rename(Gene = Gene, deltapsi_Seung = Day02)
+
+#merged <- inner_join(hiPC_human, Seung_sup, by = "Gene")
+
+#merged_labeled <- merged %>%
+#  mutate(psi_diff = abs(deltapsi_hiPC - deltapsi_Seung)) %>%
+#  arrange(desc(psi_diff)) %>%
+#  mutate(label = ifelse(row_number() <= 10, Gene, NA))
+
+
+#cor_pearson <- cor.test(merged$deltapsi_hiPC, merged$deltapsi_Seung, method = "pearson")
+#cor_spearman <- cor.test(merged$deltapsi_hiPC, merged$deltapsi_Seung, method = "spearman")
+
+#r_val <- round(cor_pearson$estimate, 3)
+#p_val <- signif(cor_pearson$p.value, 3)
+#subtitle_text <- paste0("Pearson r = ", r_val, ", p = ", p_val)
+
+
+#ggplot(merged_labeled, aes(x = deltapsi_hiPC, y = deltapsi_Seung)) +
+#  geom_point(alpha = 0.65, color = "#636363", size = 2) +
+#  geom_text_repel(aes(label = label), size = 3.5,box.padding = 0.4,max.overlaps = 15,segment.color = "gray40") +
+#  geom_smooth(method = "lm", se = FALSE, color = "#1f78b4", linetype = "dashed", size = 0.8) +
+#  geom_abline(slope = 1, intercept = 0, color = "gray60", linetype = "dotted") +
+#  labs(title = expression("ΔPSI Comparison: hiPC_human vs Seung_sup (Day 2)"),
+#    subtitle = subtitle_text,
+#    x = expression(Delta*PSI ~ "(hiPC_human, Day 2)"),
+#    y = expression(Delta*PSI ~ "(Seung_sup, Day 2)")) +
+#  theme_minimal(base_size = 13) +
+#  theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 14), plot.subtitle = element_text(hjust = 0.5, size = 12, color = "gray30"), panel.border = element_rect(color = "gray80", fill = NA),
+#    aspect.ratio = 1)
+
+```
+
+
+```{r}
+#hiPC_human <- hiPC_human %>%
+#  rename(Gene = Gene, deltapsi_hiPC = SRR10738246)
+
+#Seung_sup <- Seung_sup %>%
+#  rename(Gene = Gene, deltapsi_Seung = Day02)
+
+
+#merged <- inner_join(
+#  hiPC_human %>% dplyr::select(Gene, deltapsi_hiPC, FDR, hgnc_symbol),
+#  Seung_sup   %>% dplyr::select(Gene, deltapsi_Seung, cuurent_symbol),
+#  by = "Gene")
+
+
+#merged <- merged %>%
+#  mutate(gene_label = ifelse(hgnc_symbol != "" & !is.na(hgnc_symbol), hgnc_symbol, cuurent_symbol))
+
+
+#merged_labeled <- merged %>%
+#  mutate(psi_diff = abs(deltapsi_hiPC - deltapsi_Seung)) %>%
+#  arrange(desc(psi_diff)) %>%
+#  mutate(label = ifelse(row_number() <= 10, gene_label, NA))
+
+
+#cor_pearson <- cor.test(merged$deltapsi_hiPC, merged$deltapsi_Seung, method = "pearson")
+#r_val <- round(cor_pearson$estimate, 3)
+#p_val <- signif(cor_pearson$p.value, 3)
+#subtitle_text <- paste0("Pearson r = ", r_val, ", p = ", p_val)
+
+
+#ggplot(merged_labeled, aes(x = deltapsi_hiPC, y = deltapsi_Seung)) +
+#  geom_point(alpha = 0.65, color = "#636363", size = 2) +
+#  geom_text_repel(aes(label = label), size = 3.5,
+#                  box.padding = 0.4, max.overlaps = 15, segment.color = "gray40") +
+#  geom_smooth(method = "lm", se = FALSE, color = "#1f78b4", linetype = "dashed", size = 0.8) +
+#  geom_abline(slope = 1, intercept = 0, color = "gray60", linetype = "dotted") +
+#  labs(title = expression("ΔPSI Comparison: hiPC_human vs Seung_sup (Day 2)"),
+#    subtitle = subtitle_text,
+#    x = expression(Delta*PSI ~ "(hiPC_human, Day 2)"),
+#    y = expression(Delta*PSI ~ "(Seung_sup, Day 2)")) +
+#  theme_minimal(base_size = 13) +
+#  theme(plot.title = element_text(hjust = 0.5, face = "bold", size = 14),
+#    plot.subtitle = element_text(hjust = 0.5, size = 12, color = "gray30"),
+#    panel.border = element_rect(color = "gray80", fill = NA),
+#    aspect.ratio = 1)
+
+```
+
+
+
+```{r}
+# Count significant genes in hiPC_human
+#n_sig_hipc <- hiPC_human %>%
+#  dplyr::filter(FDR < 0.05) %>%
+#  nrow()
+
+# Count genes that exist in both datasets with valid ΔPSI
+#n_sig_in_both <- merged %>%
+#  dplyr::filter(FDR < 0.05 & !is.na(deltapsi_hiPC) & !is.na(deltapsi_Seung)) %>%
+#  nrow()
+
+# Get top 50 as before
+#sig_genes <- merged %>%
+#  dplyr::filter(FDR < 0.05 & !is.na(deltapsi_hiPC) & !is.na(deltapsi_Seung)) %>%
+#  mutate(abs_dpsi = abs(deltapsi_hiPC)) %>%
+#  arrange(desc(abs_dpsi)) %>%
+#  slice_head(n = 50)
+
+# Prepare long format
+#sig_long <- sig_genes %>%
+#  dplyr::select(gene_label, deltapsi_hiPC, deltapsi_Seung) %>%
+#  pivot_longer(cols = c(deltapsi_hiPC, deltapsi_Seung),
+#               names_to = "Dataset", values_to = "Delta_PSI") %>%
+#  mutate(Dataset = recode(Dataset,
+#                          "deltapsi_hiPC" = "hiPC_human",
+#                          "deltapsi_Seung" = "Seung_sup"))
+
+# Order genes by hiPC_human ΔPSI
+#gene_order <- sig_long %>%
+#  dplyr::filter(Dataset == "hiPC_human") %>%
+#  arrange(Delta_PSI) %>%
+ # pull(gene_label)
+#sig_long$gene_label <- factor(sig_long$gene_label, levels = gene_order)
+
+# Build subtitle text
+#subtitle_text <- paste0(
+#  "Significant in hiPC_human (FDR < 0.05): ", n_sig_hipc, 
+#  " genes | Present in both datasets: ", n_sig_in_both)
+
+# Plot
+#ggplot(sig_long, aes(x = gene_label, y = Delta_PSI, fill = Dataset)) +
+#  geom_bar(stat = "identity", position = "dodge") +
+#  coord_flip() +
+#  labs(
+#    title = "Top 50 Genes: ΔPSI in hiPC_human and Seung_sup (Day 2)",
+#    subtitle = subtitle_text,
+#    x = "Gene Symbol",
+#    y = expression(Delta*PSI),
+#    fill = "Dataset") +
+#  scale_fill_manual(values = c("hiPC_human" = "#E41A1C", "Seung_sup" = "#377EB8")) +
+#  theme_minimal(base_size = 13) +
+#  theme(
+#    plot.title = element_text(face = "bold", hjust = 0.5),
+#    plot.subtitle = element_text(hjust = 0.5, size = 11, color = "gray40"),
+#    legend.position = "top",
+#    panel.grid.minor = element_blank())
+
+
+```
+
+
+
+```{r}
+
+# Prepare data
+#psi_violin_data <- merged %>%
+#  dplyr::select(gene_label, psi_hiPC = deltapsi_hiPC, psi_Seung = deltapsi_Seung) %>%
+#  pivot_longer(cols = c(psi_hiPC, psi_Seung),
+#               names_to = "Dataset", values_to = "PSI") %>%
+#  mutate(Dataset = recode(Dataset,
+#                          "psi_hiPC" = "hiPC_human (SRR10738246)",
+#                          "psi_Seung" = "Seung_sup (Day02)"))
+
+# Violin plot with boxplot overlay and statistical annotation
+#ggplot(psi_violin_data, aes(x = Dataset, y = PSI, fill = Dataset)) +
+#  geom_violin(trim = FALSE, alpha = 0.6, color = NA) +
+#  geom_boxplot(width = 0.1, outlier.shape = NA, alpha = 0.8, notch = T) +
+#  stat_compare_means(method = "wilcox.test", label.y = 1.05, size = 4, label.x = 1.1) +
+#  labs(
+#    title = "PSI Distribution in hiPC_human vs Seung_sup (Day 2)",
+#    x = "",
+#    y = expression(Delta*PSI)) +
+#  scale_fill_manual(values = c(
+#    "hiPC_human (SRR10738246)" = "#E41A1C",
+#    "Seung_sup (Day02)" = "#377EB8")) +
+#  theme_minimal(base_size = 13) +
+#  theme(
+#    plot.title = element_text(hjust = 0.5, face = "bold"),
+#    legend.position = "none",
+#    panel.grid.minor = element_blank())
+```
+
+
+
+```{r}
+
+FR109_LABRAT = left_join(FR109_LABRAT, id_validation, by = c("Gene" = "submitted_item"))
+FR112_LABRAT = left_join(FR112_LABRAT, id_validation, by = c("Gene" = "submitted_item"))
+FR113_LABRAT = left_join(FR113_LABRAT, id_validation, by =c ("Gene" = "submitted_item"))
+
+ZI274_LABRAT = left_join(ZI274_LABRAT, id_validation, by = c("Gene" = "submitted_item"))
+ZI31_LABRAT = left_join(ZI31_LABRAT, id_validation, by = c("Gene" = "submitted_item"))
+ZI418_LABRAT = left_join(ZI418_LABRAT, id_validation, by =c ("Gene" = "submitted_item"))
+
+FR109_LABRAT = FR109_LABRAT %>%
+  distinct(Gene, .keep_all = T)
+
+FR112_LABRAT = FR112_LABRAT %>%
+  distinct(Gene, .keep_all = T)
+
+FR113_LABRAT = FR113_LABRAT %>%
+  distinct(Gene, .keep_all = T)
+
+ZI274_LABRAT = ZI274_LABRAT %>%
+  distinct(Gene, .keep_all = T)
+
+ZI31_LABRAT = ZI31_LABRAT %>%
+  distinct(Gene, .keep_all = T)
+
+ZI418_LABRAT = ZI418_LABRAT %>%
+  distinct(Gene, .keep_all = T)
+
+
+
+
+
+#BL_trail <- left_join(BL_trail, mouse_ref, by = c("Gene" = "Input"))
+```
+
+
+The interpretation of Δψ (deltapsi = Condition B - Condition A) in the LABRAT analysis is based on how the structure of the input. 
+
+How LABRAT Calculates Δψ
+Input Requirements:
+
+The sample metadata file (--samples) includes:
+
+A column condition with two groups (e.g., FR1 and Z1).
+
+Explicit flags --conditionA and --conditionB when running LABRAT (e.g., --conditionA FR1 --conditionB Z1).
+
+Δψ Calculation:
+
+LABRAT computes:
+
+Δψ = ψ FR1 (French) - ψZ1 (Zambian) 
+ 
+This is always Condition B - Condition A, as specified in the command.
+
+Interpreting Δψ in the Context of our analysis:
+
+Δψ Value	Proximal/Distal usage	of 3'UTR in the Zambian vs. French
+Δψ > 0	Higher proximal usage in Z1 3'UTRs in Zambian population (relative to French)
+Δψ < 0	Higher distal usage in Z1 3'UTRs in Zambian population (relative to French)
+Δψ ≈ 0	No difference	No significant APA change between populations
+
+
+Directionality Consistency:
+
+All your results (volcano plots, tables, etc.) follow this convention:
+
+Positive Δψ → Z1 > FR1 (Zambian prefers proximal sites).
+
+Negative Δψ → Z1 < FR1 (Zambian prefers distal sites).
+
+Biological Implications:
+
+If you see Δψ = +0.2 for a gene:
+
+The Zambian population has 20% higher proximal site usage than the French.
+
+This gene’s mRNA may escape miRNA repression in Zambians due to shorter 3'UTRs.
+
+If Δψ = -0.3:
+```{r}
+
+
+#FR109_LABRAT,FR112_LABRAT,FR113_LABRAT,ZI274_LABRAT,ZI31_LABRAT,ZI418_LABRAT
+
+
+
+FR109_filtered <- FR109_LABRAT %>%
+  dplyr::filter(FDR <= 0.05)
+
+FR112_filtered <- FR112_LABRAT %>%
+  dplyr::filter(FDR <= 0.05)
+
+FR113_filtered <- FR113_LABRAT %>%
+  dplyr::filter(FDR <= 0.05)
+
+ZI274_filtered <- ZI274_LABRAT %>%
+  dplyr::filter(FDR <= 0.05)
+
+ZI31_filtered <- ZI31_LABRAT %>%
+  dplyr::filter(FDR <= 0.05)
+
+ZI418_filtered <- ZI418_LABRAT %>%
+  dplyr::filter(FDR <= 0.05)
+
+```
+
+```{r}
+all_sig_genes <- bind_rows(
+  FR109_filtered,
+  FR112_filtered,
+  FR113_filtered,
+  ZI274_filtered,
+  ZI31_filtered,
+  ZI418_filtered)
+
+
+length(unique(all_sig_genes$validated_id))
+
+
+# Create French and Zambian sets
+fr_ids <- unique(c(
+  FR109_filtered$validated_id,
+  FR112_filtered$validated_id,
+  FR113_filtered$validated_id))
+
+za_ids <- unique(c(
+  ZI274_filtered$validated_id,
+  ZI31_filtered$validated_id,
+  ZI418_filtered$validated_id))
+
+# Totals
+length(fr_ids)
+length(za_ids)
+
+# Shared
+length(intersect(fr_ids, za_ids))
+
+# Unique to each
+length(setdiff(fr_ids, za_ids))       # French-only
+length(setdiff(za_ids, fr_ids))       # Zambian-only
+
+
+# Check genetype composition among all significant genes
+all_sig_genes %>%
+  distinct(validated_id, .keep_all = TRUE) %>%
+  dplyr::count(genetype)
+
+
+# Assign ChangeType to each gene
+all_sig_genes <- all_sig_genes %>%
+  mutate(ChangeType = case_when(
+    validated_id %in% fr_ids & validated_id %in% za_ids ~ "Shared",
+    validated_id %in% fr_ids ~ "French-only",
+    validated_id %in% za_ids ~ "Zambian-only",
+    TRUE ~ "Unknown"))
+
+# Summarize by APA type and ChangeType
+all_sig_genes %>%
+  distinct(validated_id, .keep_all = TRUE) %>%
+  dplyr::count(ChangeType, genetype)
+
+```
+
+
+```{r}
+FR_filtered <- bind_rows(FR109_filtered, FR112_filtered, FR113_filtered)
+ZA_filtered <- bind_rows(ZI274_filtered, ZI31_filtered, ZI418_filtered)
+
+FR_pref <- FR_filtered %>%
+  mutate(APA_preference = ifelse(deltapsi > 0, "Distal", "Proximal"))
+
+ZA_pref <- ZA_filtered %>%
+  mutate(APA_preference = ifelse(deltapsi > 0, "Distal", "Proximal"))
+
+FR_pref %>% dplyr::count(APA_preference)
+ZA_pref %>% dplyr::count(APA_preference)
+
+
+FR_pref_dedup <- FR_pref %>%
+  distinct(validated_id, .keep_all = TRUE) %>%
+  dplyr::count(APA_preference)
+
+ZA_pref_dedup <- ZA_pref %>%
+  distinct(validated_id, .keep_all = TRUE) %>%
+  dplyr::count(APA_preference)
+
+
+
+```
+
+
+```{r}
+
+
+FR_all <- bind_rows(FR109_filtered, FR112_filtered, FR113_filtered)
+FR_collapsed <- FR_all %>%
+  group_by(Gene) %>%
+  summarise(FRER1 = mean(c_across(contains("NER")), na.rm = TRUE), FRNR1 = mean(c_across(contains("NNR")), na.rm = TRUE),
+    deltapsi = mean(deltapsi, na.rm = TRUE), pval = mean(pval, na.rm = TRUE),
+    FDR = mean(FDR, na.rm = TRUE), validated_id = first(validated_id),
+    current_symbol = first(current_symbol),
+    genetype = first(genetype)) %>%
+  ungroup()
+
+
+ZA_all <- bind_rows(ZI274_filtered, ZI31_filtered, ZI418_filtered)
+
+ZA_collapsed <- ZA_all %>%
+  group_by(Gene) %>%
+  summarise(ZAER1 = mean(c_across(contains("NER")), na.rm = TRUE), ZANR1 = mean(c_across(contains("NNR")), na.rm = TRUE),
+    deltapsi = mean(deltapsi, na.rm = TRUE), pval = mean(pval, na.rm = TRUE),
+    FDR = mean(FDR, na.rm = TRUE), validated_id = first(validated_id),
+    current_symbol = first(current_symbol),
+    genetype = first(genetype)) %>%
+  ungroup()
+
+
+FR_collapsed <- FR_collapsed %>% 
+  distinct(validated_id, .keep_all = TRUE)
+ZA_collapsed <- ZA_collapsed %>% 
+  distinct(validated_id, .keep_all = TRUE)
+
+#write.table(ZA_collapsed, file = "Supp_ZA_collapsed.txt", sep = "\t", quote = F, row.names = F, col.names = T)
+
+```
+
+Positive Δψ (> 0):
+The control (NR) group has a higher ψ value than the treatment (ER)
+
+More usage of distal poly(A) sites in NR vs ER
+
+Treatment (ER) causes a shift toward proximal APA sites (shorter 3′ UTRs)
+
+egative Δψ (< 0):
+The treatment (ER) group has a higher ψ value than the control (NR)
+
+More usage of distal poly(A) sites in ER vs NR
+
+Treatment promotes lengthening of 3′ UTRs (more distal APA)
+
+Since Δψ = ψ(NR) - ψ(ER), a positive value means treatment shortens the 3′ UTR, and a negative value means treatment lengthens the 3′ UTR.
+```{r}
+
+FR_bar_data <- FR_collapsed %>%
+  mutate(genetype = as.character(genetype)) %>%
+  dplyr::count(genetype) %>%
+  dplyr::rename(Count = n)
+
+ZA_bar_data <- ZA_collapsed %>%
+  mutate(genetype = as.character(genetype)) %>%
+  dplyr::count(genetype) %>%
+  dplyr::rename(Count = n)
+
+
+ggplot(FR_bar_data, aes(x = genetype, y = Count, fill = genetype)) +
+  geom_bar(stat = "identity", width = 0.6, show.legend = FALSE) +
+  geom_text(aes(label = Count), vjust = -0.5, size = 5) +
+  labs(title = "APA Genetype Distribution (French)",
+       x = "Genetype", y = "Number of Genes") +
+  theme_minimal(base_size = 14) +
+  theme(
+    panel.grid = element_blank(),
+    axis.text = element_text(color = "black"),
+    plot.title = element_text(face = "bold", hjust = 0.5)) +
+  theme_classic(base_size = 14) +   
+  scale_fill_brewer(palette = "Set2")
+
+
+ggplot(ZA_bar_data, aes(x = genetype, y = Count, fill = genetype)) +
+  geom_bar(stat = "identity", width = 0.6, show.legend = FALSE) +
+  geom_text(aes(label = Count), vjust = -0.5, size = 5) +
+  labs(title = "APA Genetype Distribution (Zambian)",
+       x = "Genetype", y = "Number of Genes") +
+  theme_minimal(base_size = 14) +
+  theme_classic(base_size = 14) +   
+  theme(
+    panel.grid = element_blank(),
+    axis.text = element_text(color = "black"),
+    plot.title = element_text(face = "bold", hjust = 0.5)) +
+  scale_fill_brewer(palette = "Set2")
+
+
+FR_bar_data <- FR_collapsed %>%
+  mutate(genetype = as.character(genetype)) %>%
+  dplyr::count(genetype) %>%
+  dplyr::rename(Count = n) %>%
+  mutate(Population = "French")
+
+ZA_bar_data <- ZA_collapsed %>%
+  mutate(genetype = as.character(genetype)) %>%
+  dplyr::count(genetype) %>%
+  dplyr::rename(Count = n) %>%
+  mutate(Population = "Zambian")
+
+
+combined_bar_data <- bind_rows(FR_bar_data, ZA_bar_data)
+
+ggplot(combined_bar_data, aes(x = genetype, y = Count, fill = Population)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.6), width = 0.5) +
+  geom_text(aes(label = Count), 
+            position = position_dodge(width = 0.6), 
+            vjust = -0.5, size = 5) +
+  labs(
+    title = "APA genetype distribution by Population",
+    x = "Genetype", y = "# of genes") +
+  theme_classic(base_size = 14) +
+  theme(
+    panel.grid = element_blank(),
+    axis.text = element_text(color = "black"),
+    plot.title = element_text(face = "bold", hjust = 0.5)) +
+  scale_fill_brewer(palette = "Set1")
+```
+
+
+```{r}
+# Create counts per genotype (not population)
+FR109_bar <- FR109_filtered %>%
+  mutate(genetype = as.character(genetype)) %>%
+  count(genetype) %>%
+  rename(Count = n) %>%
+  mutate(Genotype = "FR109")
+
+FR112_bar <- FR112_filtered %>%
+  mutate(genetype = as.character(genetype)) %>%
+  count(genetype) %>%
+  rename(Count = n) %>%
+  mutate(Genotype = "FR112")
+
+FR113_bar <- FR113_filtered %>%
+  mutate(genetype = as.character(genetype)) %>%
+  count(genetype) %>%
+  rename(Count = n) %>%
+  mutate(Genotype = "FR113")
+
+ZI274_bar <- ZI274_filtered %>%
+  mutate(genetype = as.character(genetype)) %>%
+  count(genetype) %>%
+  rename(Count = n) %>%
+  mutate(Genotype = "ZI274")
+
+ZI31_bar <- ZI31_filtered %>%
+  mutate(genetype = as.character(genetype)) %>%
+  count(genetype) %>%
+  rename(Count = n) %>%
+  mutate(Genotype = "ZI31")
+
+ZI418_bar <- ZI418_filtered %>%
+  mutate(genetype = as.character(genetype)) %>%
+  count(genetype) %>%
+  rename(Count = n) %>%
+  mutate(Genotype = "ZI418")
+
+# Combine all into one data frame
+all_genotype_bar_data <- bind_rows(
+  FR109_bar, FR112_bar, FR113_bar,
+  ZI274_bar, ZI31_bar, ZI418_bar
+)
+ggplot(all_genotype_bar_data, aes(x = Genotype, y = Count, fill = genetype)) +
+  geom_bar(stat = "identity", width = 0.6) +
+  geom_text(aes(label = Count), position = position_stack(vjust = 0.5), size = 4, color = "white") +
+  labs(title = "APA Genetype Distribution by Genotype",
+       x = "Genotype", y = "# of Genes", fill = "Genetype") +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text = element_text(color = "black"),
+    plot.title = element_text(face = "bold", hjust = 0.5)
+  ) +
+  scale_fill_brewer(palette = "Set2")
+
+```
+
+
+```{r}
+FR_box <- FR_collapsed %>%
+  mutate(Population = "French",
+         Direction = ifelse(deltapsi >= 0, "Distal APA usage", "Proximal APA usage"))
+
+ZA_box <- ZA_collapsed %>%
+  mutate(Population = "Zambian",
+         Direction = ifelse(deltapsi >= 0, "Distal APA usage", "Proximal APA usage"))
+
+
+box_data <- bind_rows(FR_box, ZA_box)
+
+
+box_data$Direction <- factor(box_data$Direction, levels = c("Distal APA usage", "Proximal APA usage"))
+box_data$Population <- factor(box_data$Population, levels = c("French", "Zambian"))
+
+# Split data
+neg_data <- box_data %>% 
+  dplyr::filter(Direction == "Proximal APA usage")
+pos_data <- box_data %>% 
+  dplyr::filter(Direction == "Distal APA usage")
+
+# Plot for Negative Δpsi FR_volcano <- FR_volcano %>%  dplyr::filter(current_symbol != "UQCR-Q")
+ggplot(neg_data,aes(x = Population, y = deltapsi, fill = Population)) +
+  geom_boxplot(outlier.shape = NA, width = 0.5, alpha = 0.6, notch = TRUE) +
+  geom_jitter(aes(color = Population), width = 0.20, alpha = 0.7) +
+  stat_compare_means(
+  comparisons = list(c("French", "Zambian")),
+  method = "wilcox.test", label = "p.signif", label.y = 0.1) +
+  labs(title = " ", y     = "ΔΨ (relative to control samples)", x     = "") +
+  scale_fill_brewer(palette = "Set1") +
+  scale_color_brewer(palette = "Set1") +
+  theme_classic(base_size = 14) +          # keeps axis lines, no grid
+  theme(legend.position = "none",
+    plot.title = element_text(face = "bold", hjust = 0.5)) + coord_flip()
+
+
+ggplot(pos_data, aes(x = Population, y = deltapsi, fill = Population)) +
+  geom_boxplot(outlier.shape = NA, width = 0.5, alpha = 0.6, notch = T) +
+  geom_jitter(aes(color = Population), width = 0.2, alpha = 0.7) + 
+  stat_compare_means(
+  comparisons = list(c("French", "Zambian")),
+  method = "wilcox.test", label = "p.signif", label.y = 0.1) +
+  labs(title = " ", y     = "ΔΨ (relative to control samples)", x     = "") +
+  scale_fill_brewer(palette = "Set1") +
+  scale_color_brewer(palette = "Set1") +
+  theme_classic(base_size = 14) +          # keeps axis lines, no grid
+  theme(legend.position = "none",
+    plot.title = element_text(face = "bold", hjust = 0.5)) + coord_flip()
+
+# Combine and plot both directions in one figure
+ggplot(box_data, aes(x = Population, y = deltapsi, fill = Population)) +
+  geom_boxplot(outlier.shape = NA, width = 0.5, alpha = 0.6, notch = TRUE) +
+  geom_jitter(aes(color = Population), width = 0.2, alpha = 0.7, color = "black") +
+  stat_compare_means(method = "wilcox.test", aes(group = Population), label = "p.signif", label.y = 0.1,
+    group.by = "Direction") +
+  facet_wrap(~Direction, ncol = 1, scales = "free_y", strip.position = "right") +
+  labs(title = "", y = "ΔΨ (relative to control samples)",x = "") +
+  scale_fill_brewer(palette = "Set1") +
+  scale_color_brewer(palette = "Set1") +
+  theme_classic(base_size = 14) +
+  theme(legend.position = "none",
+    strip.text = element_text(face = "bold"),
+    plot.title = element_text(face = "bold", hjust = 0.5)) +
+  coord_flip()
+```
+
+
+
+ ΔΨ values within each population, the question changes from "Are French and Zambian APA profiles different?" to:
+
+"Within a given population, do genes that shift toward distal sites (positive ΔΨ) differ significantly from those shifting toward proximal sites (negative ΔΨ)?"
+
+
+
+```{r}
+# Split by population
+FR_box <- box_data %>% filter(Population == "French")
+ZA_box <- box_data %>% filter(Population == "Zambian")
+
+# French population
+wilcox.test(deltapsi ~ Direction, data = FR_box)
+
+# Zambian population
+wilcox.test(deltapsi ~ Direction, data = ZA_box)
+
+base_colors <- c("Proximal" = "pink", "Distal" = "darkblue")
+
+ggplot(box_data, aes(x = Direction, y = deltapsi, fill = Direction)) +
+  geom_boxplot(outlier.shape = NA, width = 0.5, alpha = 0.6, notch = TRUE) +
+  geom_jitter(width = 0.2, alpha = 0.7) + ylim(-0.5, 0.5) +
+  stat_compare_means(method = "wilcox.test", aes(group = Direction), label = "p.signif") +
+  facet_wrap(~Population, ncol = 1, strip.position = "right") +
+  labs(y = "ΔΨ", x = "APA Direction", title = "Within-Population ΔΨ Differences") +
+  scale_color_manual(values = base_colors, labels = legend_labels)+
+  theme_classic(base_size = 14) + coord_flip()
+
+```
+
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(ggrepel)
+
+
+ZA_all <- bind_rows(ZI274_LABRAT, ZI31_LABRAT, ZI418_LABRAT)
+
+# Collapse: keep the entry with lowest FDR per gene
+ZA_collapsed <- ZA_all %>%
+  group_by(validated_id) %>%
+  arrange(FDR) %>%
+  slice(1) %>%
+  ungroup()
+
+# Define FDR threshold
+fdr_thresh <- 0.05
+
+# Volcano plot input
+ZA_volcano <- ZA_collapsed %>%
+  mutate(sig_cat = case_when(FDR < fdr_thresh & deltapsi > 0 ~ "Proximal", FDR < fdr_thresh & deltapsi < 0 ~ "Distal", TRUE ~ "Not significant"), log10_pval = -log10(FDR)) %>%
+  mutate(log10_pval = ifelse(is.infinite(log10_pval), NA, log10_pval))
+
+# Count categories for legend
+ZA_counts <- ZA_volcano %>%
+  count(sig_cat) %>%
+  mutate(label = paste0(sig_cat, " (n=", n, ")"))
+
+legend_labels <- setNames(ZA_counts$label, ZA_counts$sig_cat)
+
+# Label top 10 genes
+ZA_labeled <- ZA_volcano %>%
+  filter(FDR < fdr_thresh) %>%
+  slice_max(abs(deltapsi), n = 10)
+
+
+base_colors <- c("Proximal" = "pink", "Distal" = "darkblue", "Not significant" = "gray70")
+
+
+ggplot(ZA_volcano, aes(x = deltapsi, y = log10_pval, color = sig_cat)) +
+  geom_point(alpha = 0.8, size = 3) + 
+  ylim(0,5) +
+  geom_text_repel(data = ZA_labeled, aes(label = current_symbol, colour = "black"), size = 3, box.padding = 0.4) +
+  scale_color_manual(values = base_colors, labels = legend_labels) +
+  geom_hline(yintercept = -log10(fdr_thresh), linetype = "dashed", color = "black") +
+  labs(title = "Zambian Population: APA Changes", x = expression(Delta*psi~"(ψ[NR] - ψ[ER])"), y = expression(-log[10](FDR)), color = "APA Category") +
+  theme_classic(base_size = 14) +
+  theme(legend.position = "right", plot.title = element_text(face = "bold", hjust = 0.5))
+
+```
+
+
+
+```{r}
+# Combine all raw replicate data
+FR_all <- bind_rows(FR109_LABRAT, FR112_LABRAT, FR113_LABRAT)
+
+# Collapse: keep the entry with lowest FDR per gene
+FR_collapsed <- FR_all %>%
+  group_by(validated_id) %>%
+  arrange(FDR) %>%
+  slice(1) %>%
+  ungroup()
+
+# Define FDR threshold
+fdr_thresh <- 0.05
+
+# Volcano plot input
+FR_volcano <- FR_collapsed %>%
+  mutate(sig_cat = case_when(FDR < fdr_thresh & deltapsi > 0 ~ "Proximal", FDR < fdr_thresh & deltapsi < 0 ~ "Distal", TRUE ~ "Not significant"), log10_pval = -log10(FDR)) %>%
+  mutate(log10_pval = ifelse(is.infinite(log10_pval), NA, log10_pval))
+
+# Count categories for legend
+FR_counts <- FR_volcano %>%
+  count(sig_cat) %>%
+  mutate(label = paste0(sig_cat, " (n=", n, ")"))
+
+legend_labels <- setNames(FR_counts$label, FR_counts$sig_cat)
+
+# Label top 10 genes
+FR_labeled <- FR_volcano %>%
+  filter(FDR < fdr_thresh) %>%
+  slice_max(abs(deltapsi), n = 10)
+
+
+#base_colors <- c("Proximal" = "#D55E00", "Distal" = "#0072B2", "Not significant" = "gray70")
+
+
+ggplot(FR_volcano, aes(x = deltapsi, y = log10_pval, color = sig_cat)) +
+  geom_point(alpha = 0.8, size = 2) + ylim(0,5) +
+  geom_text_repel(data = FR_labeled, aes(label = current_symbol), size = 3, box.padding = 0.4, colour = "black") +
+  scale_color_manual(values = base_colors, labels = legend_labels) +
+  geom_hline(yintercept = -log10(fdr_thresh), linetype = "dashed", color = "black") +
+  labs(title = "French Population: APA Changes", x = expression(Delta*psi~"(ψ[NR] - ψ[ER])"), y = expression(-log[10](FDR)), color = "APA Category") +
+  theme_classic(base_size = 14) +
+  theme(legend.position = "right", plot.title = element_text(face = "bold", hjust = 0.5))
+
+```
+
+
+
+```{r}
+FR109 <- FR109_LABRAT %>% mutate(Genotype = "FR109")
+FR112 <- FR112_LABRAT %>% mutate(Genotype = "FR112")
+FR113 <- FR113_LABRAT %>% mutate(Genotype = "FR113")
+
+FR_all <- bind_rows(FR109, FR112, FR113)
+FR_collapsed <- FR_all %>%
+  group_by(Genotype, validated_id) %>%
+  arrange(FDR) %>%
+  slice(1) %>%
+  ungroup()
+
+fdr_thresh <- 0.05
+
+FR_volcano <- FR_collapsed %>%
+  mutate(sig_cat = case_when(
+    FDR < fdr_thresh & deltapsi > 0 ~ "Proximal",
+    FDR < fdr_thresh & deltapsi < 0 ~ "Distal",
+    TRUE ~ "Not significant"
+  ),
+  log10_pval = -log10(FDR),
+  log10_pval = ifelse(is.infinite(log10_pval), NA, log10_pval))
+
+FR_labeled <- FR_volcano %>%
+  filter(FDR < fdr_thresh) %>%
+  group_by(Genotype) %>%
+  slice_max(abs(deltapsi), n = 3) %>%
+  ungroup()
+
+ggplot(FR_volcano, aes(x = deltapsi, y = log10_pval, color = sig_cat, shape = Genotype)) +
+  geom_point(alpha = 0.8, size = 3) +
+  geom_text_repel(data = FR_labeled,
+                  aes(label = current_symbol),
+                  size = 3, box.padding = 0.4, max.overlaps = 100,
+                  color = "black", show.legend = FALSE) +
+  geom_hline(yintercept = -log10(fdr_thresh), linetype = "dashed", color = "black") +
+  scale_color_manual(values = c(
+    "Proximal" = "pink",
+    "Distal" = "darkblue",
+    "Not significant" = "gray70")) +
+  scale_shape_manual(values = c(16, 17, 15)) +  # circles, triangles, squares
+  labs(
+    title = "APA Volcano Plot by Genotype (French)",
+    x = expression(Delta*psi~"(ψ[NR] - ψ[ER])"),
+    y = expression(-log[10](FDR)),
+    color = "Significance",
+    shape = "Genotype") +
+  theme_classic(base_size = 14) +
+  theme(plot.title = element_text(face = "bold", hjust = 0.5), legend.key.size = unit(0.9, "lines"))
+
+FR_counts <- FR_volcano %>%
+  count(sig_cat) %>%
+  mutate(label = paste0(sig_cat, " (n=", n, ")"))
+
+# Named vector for legend labeling
+legend_labels <- setNames(FR_counts$label, FR_counts$sig_cat)
+
+volcano_low <- FR_volcano %>% filter(log10_pval <= 5)
+volcano_high <- FR_volcano %>% filter(log10_pval >= 50)
+p1 <- ggplot(volcano_low, aes(x = deltapsi, y = log10_pval, color = sig_cat, shape = Genotype)) +
+  geom_point(alpha = 0.8, size = 3) +
+  geom_text_repel(data = filter(FR_labeled, log10_pval <= 5),
+                  aes(label = current_symbol),
+                  size = 3, box.padding = 0.4, max.overlaps = 50,
+                  color = "black", show.legend = FALSE) +
+  geom_hline(yintercept = -log10(fdr_thresh), linetype = "dashed", color = "black") +
+  scale_color_manual(values = c("Proximal" = "pink", "Distal" = "darkblue", "Not significant" = "gray70"),
+                     labels = legend_labels) +
+  scale_shape_manual(values = c("FR109" = 16, "FR112" = 17, "FR113" = 15)) +
+  scale_y_continuous(breaks = seq(0, 5, 1), limits = c(0, 5)) +
+  labs(
+    y = expression(-log[10](FDR)),
+    x = expression(Delta*psi~"(ψ[NR] - ψ[ER])")) +
+  theme_classic(base_size = 14) +
+  theme(legend.position = "right")
+
+p2 <- ggplot(volcano_high, aes(x = deltapsi, y = log10_pval, color = sig_cat, shape = Genotype)) +
+  geom_point(alpha = 0.8, size = 3) +
+  geom_text_repel(data = filter(FR_labeled, log10_pval >= 50),
+                  aes(label = current_symbol),
+                  size = 3, box.padding = 0.4, max.overlaps = 50,
+                  color = "black", show.legend = FALSE) +
+  scale_color_manual(values = c("Proximal" = "pink", "Distal" = "darkblue", "Not significant" = "gray70"),
+                     labels = legend_labels) +
+  scale_shape_manual(values = c("FR109" = 16, "FR112" = 17, "FR113" = 15)) +
+  coord_cartesian(ylim = c(50, 60)) +
+  scale_y_continuous(breaks = c(50, 55, 60)) +
+  labs(x = NULL, y = NULL) +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    legend.position = "none",
+    plot.margin = margin(b = 0)
+  )
+
+
+library(patchwork)
+
+final_volcano <- p2 / p1 + 
+  plot_layout(heights = c(1, 3)) +
+  plot_annotation(title = "APA Volcano Plot by Genotype (French)") &
+  theme(plot.title = element_text(face = "bold", hjust = 0.5))
+final_volcano
+```
+
+
+```{r}
+# Add Genotype labels
+ZI274 <- ZI274_LABRAT %>% mutate(Genotype = "ZI274")
+ZI31  <- ZI31_LABRAT  %>% mutate(Genotype = "ZI31")
+ZI418 <- ZI418_LABRAT %>% mutate(Genotype = "ZI418")
+
+# Combine into one data frame
+ZA_all <- bind_rows(ZI274, ZI31, ZI418)
+ZA_collapsed <- ZA_all %>%
+  group_by(Genotype, validated_id) %>%
+  arrange(FDR) %>%
+  slice(1) %>%
+  ungroup()
+
+fdr_thresh <- 0.05
+
+ZA_volcano <- ZA_collapsed %>%
+  mutate(sig_cat = case_when(
+    FDR < fdr_thresh & deltapsi > 0 ~ "Proximal",
+    FDR < fdr_thresh & deltapsi < 0 ~ "Distal",
+    TRUE ~ "Not significant"
+  ),
+  log10_pval = -log10(FDR),
+  log10_pval = ifelse(is.infinite(log10_pval), NA, log10_pval))
+
+ZA_counts <- ZA_volcano %>%
+  count(sig_cat) %>%
+  mutate(label = paste0(sig_cat, " (n=", n, ")"))
+
+legend_labels <- setNames(ZA_counts$label, ZA_counts$sig_cat)
+
+ZA_labeled <- ZA_volcano %>%
+  filter(FDR < fdr_thresh) %>%
+  group_by(Genotype) %>%
+  slice_max(abs(deltapsi), n = 3) %>%
+  ungroup()
+
+volcano_low <- ZA_volcano %>% filter(log10_pval <= 5)
+volcano_high <- ZA_volcano %>% filter(log10_pval >= 50)
+
+
+p1 <- ggplot(volcano_low, aes(x = deltapsi, y = log10_pval, color = sig_cat, shape = Genotype)) +
+  geom_point(alpha = 0.8, size = 3) +
+  geom_text_repel(data = filter(ZA_labeled, log10_pval <= 5),
+                  aes(label = current_symbol),
+                  size = 3, box.padding = 0.4, max.overlaps = 50,
+                  color = "black", show.legend = FALSE) +
+  geom_hline(yintercept = -log10(fdr_thresh), linetype = "dashed", color = "black") +
+  scale_color_manual(values = c("Proximal" = "pink", "Distal" = "darkblue", "Not significant" = "gray70"),
+                     labels = legend_labels) +
+  scale_shape_manual(values = c("ZI274" = 16, "ZI31" = 17, "ZI418" = 15)) +
+  scale_y_continuous(breaks = seq(0, 5, 1), limits = c(0, 5)) +
+  labs(
+    y = expression(-log[10](FDR)),
+    x = expression(Delta*psi~"(ψ[NR] - ψ[ER])")) +
+  theme_classic(base_size = 14) +
+  theme(legend.position = "right")
+
+p2 <- ggplot(volcano_high, aes(x = deltapsi, y = log10_pval, color = sig_cat, shape = Genotype)) +
+  geom_point(alpha = 0.8, size = 3) +
+  geom_text_repel(data = filter(ZA_labeled, log10_pval >= 50),
+                  aes(label = current_symbol),
+                  size = 3, box.padding = 0.4, max.overlaps = 50,
+                  color = "black", show.legend = FALSE) +
+  scale_color_manual(values = c("Proximal" = "pink", "Distal" = "darkblue", "Not significant" = "gray70"),
+                     labels = legend_labels) +
+  scale_shape_manual(values = c("ZI274" = 16, "ZI31" = 17, "ZI418" = 15)) +
+  coord_cartesian(ylim = c(50, 60)) +
+  scale_y_continuous(breaks = c(50, 55, 60)) +
+  labs(x = NULL, y = NULL) +
+  theme_classic(base_size = 14) +
+  theme(
+    axis.text.x = element_blank(),
+    axis.ticks.x = element_blank(),
+    legend.position = "none",
+    plot.margin = margin(b = 0)
+  )
+
+
+
+final_plot_ZA <- p2 / p1 +
+  plot_layout(heights = c(1, 3)) +
+  plot_annotation(title = "APA Volcano Plot by Genotype (Zambian)") &
+  theme(plot.title = element_text(face = "bold", hjust = 0.5))
+
+final_plot_ZA
+```
+
+LABRAT calculates:
+
+Δψ = ψ_ER − ψ_NR
+
+So:
+
+If Δψ > 0 → Higher distal APA usage in ER (treatment) compared to NR (control)
+
+If Δψ < 0 → Higher proximal APA usage in ER (treatment) compared to NR (control)
+
+
+| Δψ sign | Interpretation                                    |
+| ------- | ------------------------------------------------- |
+| **> 0** | ER (treatment) favors **distal** APA site usage   |
+| **< 0** | ER (treatment) favors **proximal** APA site usage |
+
+APA Site Usage ↔ 3′UTR Length
+Proximal APA site → Shorter 3′UTR
+
+Distal APA site → Longer 3′UTR
+
+| Δψ value | Treatment (ER) APA usage | 3′UTR length change in treatment |
+| -------- | ------------------------ | -------------------------------- |
+| **> 0**  | More **distal** usage    | **Lengthening** of 3′UTR         |
+| **< 0**  | More **proximal** usage  | **Shortening** of 3′UTR          |
+
+
+```{r}
+FR_posfactors_109 <- read.delim("~/Dropbox/3UTR/Labrat_out/FR109NR2_FR109ER2_numberofposfactors.txt", header = TRUE, sep = "\t") %>%
+  mutate(Genotype = "FR109")
+FR_posfactors_112 <- read.delim("~/Dropbox/3UTR/Labrat_out/FR112NNR12_FR112NER12_numberofposfactors.txt", header = TRUE, sep = "\t") %>%
+  mutate(Genotype = "FR112")
+FR_posfactors_113 <- read.delim("~/Dropbox/3UTR/Labrat_out/FR113NNR2_FR113NER3_numberofposfactors.txt", header = TRUE, sep = "\t") %>%
+  mutate(Genotype = "FR113")
+
+ZI_posfactors_ZI274 <- read.delim("~/Dropbox/3UTR/Labrat_out/ZI274NNR1_ZI274NER2_numberofposfactors.txt", header = TRUE, sep = "\t") %>%
+  mutate(Genotype = "ZI274")
+ZI_posfactors_ZI31 <- read.delim("~/Dropbox/3UTR/Labrat_out/ZI31NNR1_ZI31NER3_numberofposfactors.txt", header = TRUE, sep = "\t") %>%
+  mutate(Genotype = "ZI31")
+ZI_posfactors_ZI418 <- read.delim("~/Dropbox/3UTR/Labrat_out/ZI418NER2_ZI418NER2_numberofposfactors.txt", header = TRUE, sep = "\t") %>%
+  mutate(Genotype = "ZI418")
+
+
+FR109_sig <- FR109_LABRAT %>%
+  filter(FDR < 0.05) %>%
+  left_join(FR_posfactors_109, by = "Gene")
+
+FR112_sig <- FR112_LABRAT %>%
+  filter(FDR < 0.05) %>%
+  left_join(FR_posfactors_112, by = "Gene")
+
+FR113_sig <- FR113_LABRAT %>%
+  filter(FDR < 0.05) %>%
+  left_join(FR_posfactors_113, by = "Gene")
+
+ZI274_sig <- ZI274_LABRAT %>%
+  filter(FDR < 0.05) %>%
+  left_join(ZI_posfactors_ZI274, by = "Gene")
+
+ZI31_sig <- ZI31_LABRAT %>%
+  filter(FDR < 0.05) %>%
+  left_join(ZI_posfactors_ZI31, by = "Gene")
+
+ZI418_sig <- ZI418_LABRAT %>%
+  filter(FDR < 0.05) %>%
+  left_join(ZI_posfactors_ZI418, by = "Gene")
+
+
+FR_combined <- bind_rows(FR109_sig, FR112_sig, FR113_sig)
+ZA_combined <- bind_rows(ZI274_sig, ZI31_sig, ZI418_sig)
+
+
+apa_sig_genes <- bind_rows(FR_combined, ZA_combined) %>%
+  filter(numberofposfactors > 1)
+
+
+apa_counts <- apa_sig_genes %>%
+  count(Genotype, numberofposfactors) %>%
+  rename(`APA Sites` = numberofposfactors, `Number of Genes` = n)
+
+
+ggplot(apa_counts, aes(x = factor(`APA Sites`), y = `Number of Genes`, fill = Genotype)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.7)) +
+  geom_text(aes(label = `Number of Genes`),
+            position = position_dodge(width = 0.7),
+            vjust = -0.5, size = 4) +
+  labs(
+    title = "APA Site Count Distribution in Significant Genes (FDR < 0.05)",
+    x = "Number of APA Sites (≥25 nt apart)",
+    y = "Number of Genes") +
+  scale_fill_brewer(palette = "Set1") +
+  theme_classic(base_size = 14)
+```
+
+
+Do APA shifts toward distal or proximal sites differ in their genomic spacing
+
+Question:
+
+Are APA events that shift toward distal sites associated with greater distances between APA sites compared to those shifting toward proximal sites?
+
+What this tells you:
+
+Whether distal shifts require greater transcript remodeling, such as longer 3′ UTRs or switching to far-away terminal exons.
+
+If proximal shifts are more conservative, involving nearby APA choices.
+
+statistically test whether APA events shifting toward distal sites differ in their inter-polyA distances compared to those shifting proximal, the Wilcoxon rank-sum test (Mann–Whitney U) is the right choice — especially since distances are often non-normally distributed.
+```{r}
+library(ggridges)
+
+FR_sig_apa <- FR_sig_apa %>%
+  mutate(APA_Direction = ifelse(deltapsi > 0, "Distal", "Proximal"),
+         Population = "French")
+
+ZA_sig_apa <- ZA_sig_apa %>%
+  mutate(APA_Direction = ifelse(deltapsi > 0, "Distal", "Proximal"),
+         Population = "Zambian")
+
+
+apa_dist_data <- bind_rows(FR_sig_apa, ZA_sig_apa) %>%
+  filter(numberofposfactors > 1, !is.na(interpolyAdist)) %>%
+  mutate(interpolyAdist = as.numeric(interpolyAdist))
+
+apa_dist_data_clean <- apa_dist_data %>%
+  filter(!is.na(interpolyAdist), numberofposfactors > 1)
+
+
+wilcox.test(interpolyAdist ~ APA_Direction, data = filter(apa_dist_data_clean, Population == "French"))
+wilcox.test(interpolyAdist ~ APA_Direction, data = filter(apa_dist_data_clean, Population == "Zambian"))
+
+wilcox.test(interpolyAdist ~ Population,
+            data = filter(apa_dist_data_clean, APA_Direction == "Distal"))
+
+wilcox.test(interpolyAdist ~ Population,
+            data = filter(apa_dist_data_clean, APA_Direction == "Proximal"))
+
+
+
+base_colors <- c("Proximal" = "pink", "Distal" = "darkblue")
+
+ggplot(apa_dist_data, aes(x = interpolyAdist, y = interaction(Population, APA_Direction), fill = APA_Direction)) +
+  geom_density_ridges(scale = 1.2, alpha = 0.8, rel_min_height = 0.01) +
+  labs(title = "Distribution of APA distances",
+       x = "Distance between APA sites (nt)",
+       y = "APA Direction within Population") +
+  theme_classic(base_size = 14) + 
+  scale_color_manual(values = base_colors, labels = legend_labels) +
+  theme(legend.position = "right", plot.title = element_text(face = "bold", hjust = 0.5))
+
+```
+
+```{r}
+FR_sig_apa <- bind_rows(
+  FR109_sig %>% mutate(Genotype = "FR109"),
+  FR112_sig %>% mutate(Genotype = "FR112"),
+  FR113_sig %>% mutate(Genotype = "FR113")) %>%
+  filter(FDR < 0.05) %>%
+  mutate(APA_Direction = ifelse(deltapsi > 0, "Distal", "Proximal"))
+
+ZA_sig_apa <- bind_rows(
+  ZI274_sig %>% mutate(Genotype = "ZI274"),
+  ZI31_sig  %>% mutate(Genotype = "ZI31"),
+  ZI418_sig %>% mutate(Genotype = "ZI418")) %>%
+  filter(FDR < 0.05) %>%
+  mutate(APA_Direction = ifelse(deltapsi > 0, "Distal", "Proximal"))
+
+
+apa_dist_data <- bind_rows(FR_sig_apa, ZA_sig_apa) %>%
+  filter(numberofposfactors > 1, !is.na(interpolyAdist)) %>%
+  mutate(interpolyAdist = as.numeric(interpolyAdist))
+
+
+
+
+base_colors <- c("Proximal" = "pink", "Distal" = "darkblue")
+
+ggplot(apa_dist_data, aes(x = interpolyAdist, y = interaction(Genotype, APA_Direction), fill = APA_Direction)) +
+  geom_density_ridges(scale = 1.2, alpha = 0.8, rel_min_height = 0.01, color = "black") +
+  scale_fill_manual(values = base_colors) +
+  labs(title = "Distribution of APA Distances by Genotype and Direction", x = "Distance between APA sites (nt)", y = "APA Direction per Genotype") +
+  theme_classic(base_size = 14) +
+  theme(legend.position = "right", plot.title = element_text(face = "bold", hjust = 0.5), axis.text.y = element_text(size = 10))
+
+```
+
+
+
+```{r}
+
+# Extract validated IDs from both sets
+fr_ids <- FR_sig_apa$validated_id
+za_ids <- ZA_sig_apa$validated_id
+
+# Genes private to French population
+FR_private <- FR_sig_apa %>%
+  filter(!(validated_id %in% za_ids)) %>%
+  mutate(Population = "French")
+
+# Genes private to Zambian population
+ZA_private <- ZA_sig_apa %>%
+  filter(!(validated_id %in% fr_ids)) %>%
+  mutate(Population = "Zambian")
+
+private_apa <- bind_rows(FR_private, ZA_private)
+
+# View summary
+table(private_apa$Population)
+
+
+
+private_apa <- private_apa %>%
+  mutate(ChangeType = case_when(
+    deltapsi > 0 ~ "Distal",
+    deltapsi < 0 ~ "Proximal",
+    TRUE ~ NA_character_))
+table(private_apa$Population, private_apa$ChangeType)
+
+
+#Genetype Breakdown (TUTR, ALE, Mixed)
+
+table(private_apa$Population, private_apa$genetype)
+
+
+#APA Distance Summary (Mean, Median, SD by Population & ChangeType)
+
+private_apa$interpolyAdist <- as.numeric(private_apa$interpolyAdist)
+
+
+private_apa %>%
+  filter(!is.na(interpolyAdist)) %>%
+  group_by(Population, ChangeType) %>%
+  summarise(
+    mean_distance = round(mean(interpolyAdist, na.rm = TRUE), 1),
+    median_distance = round(median(interpolyAdist, na.rm = TRUE), 1),
+    sd_distance = round(sd(interpolyAdist, na.rm = TRUE), 1),
+    .groups = "drop")
+
+private_apa %>%
+  filter(genetype == "TUTR") %>%
+  count(Population, ChangeType)
+
+
+
+```
+
+
+# genes that shared in the same direction
+```{r}
+FR_sig_apa <- FR_sig_apa %>%
+  mutate(ChangeType = case_when(
+    deltapsi > 0 ~ "Distal",
+    deltapsi < 0 ~ "Proximal",
+    TRUE ~ NA_character_))
+
+ZA_sig_apa <- ZA_sig_apa %>%
+  mutate(ChangeType = case_when(
+    deltapsi > 0 ~ "Distal",
+    deltapsi < 0 ~ "Proximal",
+    TRUE ~ NA_character_))
+
+shared_apa <- inner_join(
+  FR_sig_apa %>% select(validated_id, current_symbol, ChangeType_FR = ChangeType),
+  ZA_sig_apa %>% select(validated_id, current_symbol, ChangeType_ZA = ChangeType),
+  by = "validated_id")
+
+shared_same_direction <- shared_apa %>%
+  filter(ChangeType_FR == ChangeType_ZA)
+
+table(shared_same_direction$ChangeType_FR)
+nrow(shared_same_direction)
+
+
+shared_opposite_direction <- shared_apa %>%
+  filter(ChangeType_FR != ChangeType_ZA)
+
+shared_opposite_direction_unique <- shared_opposite_direction %>%
+  distinct(validated_id, .keep_all = TRUE)
+
+```
+
+
+```{r}
+library(ggplot2)
+library(ggpubr)
+library(dplyr)
+
+# Combine APA data
+FR_sig_apa <- FR_sig_apa %>% mutate(Population = "French")
+ZA_sig_apa <- ZA_sig_apa %>% mutate(Population = "Zambian")
+apa_combined <- bind_rows(FR_sig_apa, ZA_sig_apa)
+
+# Run Wilcoxon test manually
+test <- wilcox.test(interpolyAdist ~ Population, data = apa_combined)
+pval_text <- paste0("Wilcoxon p = ", signif(test$p.value, 3))
+
+# Add to plot
+ggplot(apa_combined, aes(x = interpolyAdist, fill = Population)) +
+  geom_density(alpha = 0.5, adjust = 1.2) +
+  labs(
+    title = "Distribution of APA sites (FDR < 0.05)",
+    x = "Distance Between APA Sites (nt)",
+    y = "Density",
+    subtitle = pval_text) +
+  scale_fill_brewer(palette = "Set1") +
+  theme_classic(base_size = 14)
+```
+
+```{r}
+library(tidyr)
+
+# Example: split txids into separate columns per APA site
+ZI_posfactors_expanded <- ZI_posfactors %>%
+  separate(txids, into = paste0("Site", 1:5), sep = "_", fill = "right")
+
+# Optional: count transcripts per site
+ZI_posfactors_expanded$Site1_tx_count <- sapply(strsplit(ZI_posfactors_expanded$Site1, ","), length)
+
+```
+
+
+
+
+
+
+
+
+| Question                                                                    | What to Test or Compare |
+| --------------------------------------------------------------------------- | --------------------- |
+| **Are the distributions of APA site counts different between populations?** | Chi-squared or Fisher’s exact test on APA site frequencies   |
+| **Do Zambian genes tend to have more APA sites?**                           | Compare mean/median APA site count (Wilcoxon test or t-test) |
+| **What proportion of significant genes have exactly 2 APA sites?**          | Proportions, chi-squared test
+| **Do APA site distances differ between populations (for 2-site genes)?**.   | Compare `interpolyAdist` (Wilcoxon test)|
+| **APA complexity vs gene regulation direction (Δψ)** | Logistic regression, association analysis |
+
+
+
+Interpretability of Δψ (delta psi) is most meaningful with two sites
+For genes with two APA sites, the Δψ value clearly reflects a shift between the proximal site and the distal site.
+
+A Δψ > 0 → increased usage of the proximal site (shortened UTR)
+A Δψ < 0 → increased usage of the distal site (lengthened UTR)
+
+With more than 2 sites, Δψ becomes a weighted average across multiple sites, and it's harder to biologically interpret the direction of the shift.
+
+```{r}
+
+FR_volcano_annotated <- FR_volcano_annotated %>%
+  mutate(Population = "French")
+
+ZA_volcano_annotated <- ZA_volcano_annotated %>%
+  mutate(Population = "Zambian")
+
+apa_2site_sig <- bind_rows(FR_volcano_annotated, ZA_volcano_annotated) %>%
+  dplyr::filter(FDR < 0.05, numberofposfactors > 1, !is.na(interpolyAdist)) %>%
+  mutate(interpolyAdist = as.numeric(interpolyAdist))
+
+# Longest APA gene
+longest_apa <- apa_2site_sig %>%
+  arrange(desc(interpolyAdist)) %>%
+  dplyr::slice(1)
+
+# Shortest APA gene
+shortest_apa <- apa_2site_sig %>%
+  arrange(interpolyAdist) %>%
+  dplyr::slice(1)
+
+# Annotate APA direction
+annotated_extremes <- bind_rows(longest_apa, shortest_apa) %>%
+  mutate(APA_shift = case_when(
+    deltapsi > 0 ~ "Shortened",
+    deltapsi < 0 ~ "Lengthened",
+    TRUE ~ "Mixed")) %>%
+  dplyr::select(Gene, current_symbol, Population, deltapsi, APA_shift, interpolyAdist, genetype)
+
+
+```
+
+
+
+```{r}
+# Combine annotated datasets and set population
+FR_volcano_annotated <- FR_volcano_annotated %>%
+  mutate(Population = "French")
+
+ZA_volcano_annotated <- ZA_volcano_annotated %>%
+  mutate(Population = "Zambian")
+
+# Filter for significant APA-regulated genes with >1 APA site and defined distance
+apa_sig_all <- bind_rows(FR_volcano_annotated, ZA_volcano_annotated) %>%
+  dplyr::filter(FDR < 0.05, numberofposfactors > 1, !is.na(interpolyAdist)) %>%
+  mutate(
+    interpolyAdist = as.numeric(interpolyAdist),
+    APA_shift = case_when(
+      deltapsi > 0 ~ "Shortened",
+      deltapsi < 0 ~ "Lengthened",
+      TRUE ~ "Unchanged"))
+
+# Summarize direction of APA shift by population
+apa_summary_all <- apa_sig_all %>%
+  group_by(Population, APA_shift) %>%
+  summarise(
+    n_genes = n(),
+    mean_deltapsi = round(mean(deltapsi, na.rm = TRUE), 3),
+    mean_APA_dist = round(mean(interpolyAdist, na.rm = TRUE), 1),
+    .groups = "drop")
+
+print(apa_summary_all)
+
+```
+
+```{r}
+
+FR_sig <- FR_volcano_annotated %>%
+  dplyr::filter(FDR < 0.05) %>%
+  dplyr::select(Gene, deltapsi, pval, validated_id, current_symbol, FDR, deltapsi,genetype, Population,numberofposfactors,interpolyAdist)
+
+ZA_sig <- ZA_volcano_annotated %>%
+  dplyr::filter(FDR < 0.05) %>%
+  dplyr::select(Gene, deltapsi, pval, validated_id, current_symbol, FDR, deltapsi,genetype, Population,numberofposfactors,interpolyAdist)
+
+# Get sets of validated IDs
+fr_ids <- unique(FR_sig$validated_id)
+za_ids <- unique(ZA_sig$validated_id)
+
+# Assign change type
+FR_sig <- FR_sig %>%
+  mutate(ChangeType = case_when(
+    validated_id %in% za_ids ~ "Shared",
+    TRUE ~ "French-only"))
+
+ZA_sig <- ZA_sig %>%
+  mutate(ChangeType = case_when(
+    validated_id %in% fr_ids ~ "Shared",
+    TRUE ~ "Zambian-only"))
+
+FR_sig_dedup <- FR_sig %>% 
+  distinct(validated_id, .keep_all = TRUE)
+ZA_sig_dedup <- ZA_sig %>% 
+  distinct(validated_id, .keep_all = TRUE)
+
+# Combine
+private_apa <- bind_rows(FR_sig_dedup, ZA_sig_dedup)
+
+
+
+```
+
+
+
+
+```{r}
+library(ggplot2)
+library(dplyr)
+# Combine
+private_apa <- bind_rows(FR_sig_dedup, ZA_sig_dedup)
+# Clean up and prep data
+dot_data <- private_apa %>%
+  dplyr::filter(!is.na(deltapsi), !is.na(current_symbol), !is.na(ChangeType)) %>%
+  mutate(interpolyAdist = as.numeric(interpolyAdist)) %>%
+  arrange(desc(abs(deltapsi))) %>%
+  distinct(current_symbol, .keep_all = TRUE)  # One dot per gene
+
+# Optional: limit number of genes (e.g. top 50 by |Δψ|)
+dot_data <- dot_data %>% slice_max(abs(deltapsi), n = 50)
+
+# Make validated_id a factor ordered by deltapsi
+dot_data$current_symbol <- factor(dot_data$current_symbol, levels = dot_data$current_symbol[order(dot_data$deltapsi)])
+
+# Dot plot
+ggplot(dot_data, aes(x = deltapsi, y = current_symbol, color = ChangeType, size = interpolyAdist)) +
+  geom_point(alpha = 0.8) +
+  scale_color_brewer(palette = "Set1") +
+  scale_size_continuous(range = c(2, 6), name = "APA Distance (nt)") +
+  labs(title = "APA changes in sign genes by Population",
+    x = expression(Delta*psi~"(ψ[NR] - ψ[ER])"),
+    y = "Gene",
+    color = "Change Type") +
+  theme_classic(base_size = 14) +
+  theme(axis.text.y = element_text(size = 7),
+    legend.position = "right",
+    plot.title = element_text(face = "bold", hjust = 0.5))
+
+```
+```{r}
+private_apa <- bind_rows(
+  FR109_sig,
+  FR112_sig,
+  FR113_sig,
+  ZI274_sig,
+  ZI31_sig,
+  ZI418_sig)
+
+
+dot_data <- private_apa %>%
+  filter(!is.na(deltapsi), !is.na(current_symbol)) %>%
+  mutate(
+    ChangeType = case_when(
+      FDR < 0.05 & deltapsi > 0 ~ "Proximal",
+      FDR < 0.05 & deltapsi < 0 ~ "Distal",
+      TRUE ~ "Not significant"),
+    interpolyAdist = as.numeric(interpolyAdist) ) %>%
+  arrange(desc(abs(deltapsi))) %>%
+  distinct(current_symbol, .keep_all = TRUE) %>%
+  slice_max(abs(deltapsi), n = 50) %>%
+  mutate(current_symbol = factor(current_symbol, levels = current_symbol[order(deltapsi)]))
+
+
+change_colors <- c("Proximal" = "pink", "Distal" = "darkblue")
+
+ggplot(dot_data, aes(x = deltapsi, y = current_symbol, color = ChangeType, size = interpolyAdist, shape = Genotype)) + geom_point(alpha = 0.85) +
+  scale_shape_manual(values = c("FR109" = 16, "FR112" = 17, "FR113" = 15, "ZI274" = 18, "ZI31" = 8, "ZI418" = 3)) + scale_size_continuous(range = c(2, 6), name = "APA Distance (nt)") +
+  labs(title = "APA Changes in Significant Genes by Genotype", x = expression(Delta*psi~"(ψ[NR] - ψ[ER])"), y = "Gene", color = "Change Type",
+    shape = "Genotype") +
+  theme_classic(base_size = 14) +
+  scale_color_manual(values = change_colors) +
+  theme(axis.text.y = element_text(size = 7),plot.title = element_text(face = "bold", hjust = 0.5), legend.position = "right")
+
+```
+
+
+```{r}
+private_apa <- private_apa %>%
+  group_by(validated_id) %>%
+  summarise(
+    deltapsi = mean(deltapsi, na.rm = TRUE),
+    FDR = mean(FDR, na.rm = TRUE),
+    current_symbol = first(current_symbol),
+    genetype = first(genetype),
+    ChangeType = first(ChangeType),
+    .groups = "drop") %>%
+  mutate(sig_cat = case_when(
+    FDR < 0.05 & deltapsi > 0 ~ "Distal",
+    FDR < 0.05 & deltapsi < 0 ~ "Proximal",
+    TRUE ~ "Not significant"))
+
+
+
+private_apa %>%
+  dplyr::filter(!is.na(sig_cat), sig_cat %in% c("Distal", "Proximal")) %>%
+  dplyr::count(ChangeType, sig_cat, genetype) %>%
+  ggplot(aes(x = ChangeType, y = n, fill = sig_cat)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.7)) +
+  geom_text(aes(label = n), 
+            position = position_dodge(width = 0.7),
+            vjust = -0.3, size = 4) +
+  facet_wrap(~ genetype) +
+  labs(title = "Direction of APA Change by Genetype",
+    y = "Number of Genes",
+    x = "Change Type") +
+  scale_fill_brewer(palette = "Set1") +
+  theme_classic(base_size = 14) + theme(axis.text.x=element_text(angle=45, hjust=1))
+
+
+```
+
+
+
+
+
+
+
+```{r}
+# Keep only significant APA genes with genetype
+FR109_genes <- FR109_sig %>% filter(!is.na(genetype)) %>%
+  select(Gene, genetype) %>% mutate(Genotype = "FR109")
+
+FR112_genes <- FR112_sig %>% filter(!is.na(genetype)) %>%
+  select(Gene, genetype) %>% mutate(Genotype = "FR112")
+
+FR113_genes <- FR113_sig %>% filter(!is.na(genetype)) %>%
+  select(Gene, genetype) %>% mutate(Genotype = "FR113")
+
+ZI274_genes <- ZI274_sig %>% filter(!is.na(genetype)) %>%
+  select(Gene, genetype) %>% mutate(Genotype = "ZI274")
+
+ZI31_genes <- ZI31_sig %>% filter(!is.na(genetype)) %>%
+  select(Gene, genetype) %>% mutate(Genotype = "ZI31")
+
+ZI418_genes <- ZI418_sig %>% filter(!is.na(genetype)) %>%
+  select(Gene, genetype) %>% mutate(Genotype = "ZI418")
+
+
+
+# Combine all genotypes
+combined_genes <- bind_rows(
+  FR109_genes, FR112_genes, FR113_genes,
+  ZI274_genes, ZI31_genes, ZI418_genes
+)
+
+# Count how many genotypes each gene is found in, per genetype
+shared_counts <- combined_genes %>%
+  distinct(Genotype, Gene, genetype) %>%
+  group_by(Gene, genetype) %>%
+  summarise(n_genotypes = n(), .groups = "drop")
+
+
+# Count how many genes appear in N genotypes per genetype
+genetype_sharing <- shared_counts %>%
+  count(genetype, n_genotypes) %>%
+  rename(`Number of Genotypes` = n_genotypes, `Number of Genes` = n)
+
+# Plot
+ggplot(genetype_sharing, aes(x = factor(`Number of Genotypes`), y = `Number of Genes`, fill = genetype)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.7)) +
+  geom_text(aes(label = `Number of Genes`),
+            position = position_dodge(width = 0.7),
+            vjust = -0.5, size = 4) +
+  labs(
+    title = "Gene Sharing Across Genotypes by Genetype",
+    x = "# Genotypes a Gene is Shared Across",
+    y = "# Genes",
+    fill = "Genetype"
+  ) +
+  scale_fill_brewer(palette = "Set2") +
+  theme_classic(base_size = 14)
+
+```
+
+
+```{r}
+# Get vectors of significant gene IDs from each population
+fr_ids <- unique(FR_collapsed$current_symbol)
+za_ids <- unique(ZA_collapsed$current_symbol)
+# Shared genes
+shared_genes <- intersect(fr_ids, za_ids)
+
+# French-only genes
+french_only_genes <- setdiff(fr_ids, za_ids)
+
+# Zambian-only genes
+zambian_only_genes <- setdiff(za_ids, fr_ids)
+
+
+private_apa %>%
+  group_by(current_symbol) %>%
+  tally() %>%
+  dplyr::filter(n > 1)
+
+```
+
+
+
+
+
+
+
+```{r}
+library(dplyr)
+
+# Ensure interpolyAdist is numeric
+private_apa <- private_apa %>%
+  mutate(interpolyAdist = as.numeric(interpolyAdist))
+
+# Filter for 2-site APA events that are private and significant
+private_stats <- private_apa %>%
+  dplyr::filter(
+    FDR < 0.05,
+    numberofposfactors == 2,
+    !is.na(interpolyAdist)
+  ) %>%
+  mutate(
+    APA_shift = case_when(
+      deltapsi > 0 ~ "Shortened",
+      deltapsi < 0 ~ "Lengthened",
+      TRUE ~ NA_character_
+    )
+  ) %>%
+  dplyr::filter(!is.na(APA_shift))
+
+# 1. Mean distances by APA shift and population
+private_means <- private_stats %>%
+  group_by(Population, APA_shift) %>%
+  summarise(
+    mean_dist = round(mean(interpolyAdist), 1),
+    max_dist = max(interpolyAdist),
+    gene_max = current_symbol[which.max(interpolyAdist)],
+    .groups = "drop")
+
+# 2. Output for manual inspection
+private_means
+
+```
+
+
+```{r}
+# Make sure interpolyAdist is numeric and APA shift is defined
+shared_apa <- private_apa %>%
+  dplyr::filter(
+    ChangeType == "Shared",
+    FDR < 0.05,
+    numberofposfactors == 2,
+    !is.na(interpolyAdist)) %>%
+  mutate(
+    interpolyAdist = as.numeric(interpolyAdist),
+    APA_shift = case_when(
+      deltapsi > 0 ~ "Shortened",
+      deltapsi < 0 ~ "Lengthened",
+      TRUE ~ NA_character_)) %>%
+  dplyr::filter(!is.na(APA_shift))
+
+# Calculate mean and max APA distance per population and APA direction
+shared_means <- shared_apa %>%
+  group_by(Population, APA_shift) %>%
+  summarise(
+    mean_dist = round(mean(interpolyAdist, na.rm = TRUE), 1),
+    max_dist = max(interpolyAdist, na.rm = TRUE),
+    gene_max = current_symbol[which.max(interpolyAdist)],
+    .groups = "drop")
+
+shared_means
+
+
+```
+
+LABRAT.py --conditionA Control --conditionB Ethanol
+Then:
+
+ΔΨ > 0 means ethanol-treated samples use the distal site more than control
+
+ΔΨ < 0 means ethanol-treated samples shift to the proximal site
+
+
+```{r, message=F, warning=F}
+#FR109_filtered
+#FR112_filtered 
+#FR113_filtered
+#ZI274_filtered
+#ZI31_filtered
+#ZI418_filtered
+
+base_colors <- c("Proximal" = "pink", "Distal" = "darkblue")
+
+FR109_box <- FR109_filtered %>%
+  mutate(Population = "French_FR109",
+         Direction = ifelse(deltapsi >= 0, "Distal", "Proximal"))
+
+FR112_box <- FR112_filtered %>%
+  mutate(Population = "French_FR112",
+         Direction = ifelse(deltapsi >= 0, "Distal", "Proximal"))
+
+FR113_box <- FR113_filtered %>%
+  mutate(Population = "French_FR113",
+         Direction = ifelse(deltapsi >= 0, "Distal", "Proximal"))
+
+
+box_data <- bind_rows(FR109_box, FR112_box, FR113_box)
+
+
+box_data$Direction <- factor(box_data$Direction, levels = c("Distal", "Proximal"))
+box_data$Population <- factor(box_data$Population, levels = c("French_FR109", "French_FR112", "French_FR113"))
+
+
+
+
+comp_list <- list(
+  c("French_FR109", "French_FR112"),
+  c("French_FR109", "French_FR113"),
+  c("French_FR112", "French_FR113"))
+
+
+ggplot(box_data, aes(x = Population, y = deltapsi, fill = Population)) +
+  geom_boxplot(outlier.shape = NA, width = 0.5, alpha = 0.6, notch = TRUE) +
+  geom_jitter(width = 0.2, alpha = 0.6, color = "black", size = 1) +
+  stat_compare_means(comparisons = comp_list, method = "wilcox.test", label = "p.signif", aes(group = Population)) +
+  facet_wrap(~Direction, ncol = 1, scales = "free_y", strip.position = "right") +
+  labs(title = "APA shift across French Replicates", y = expression(Delta*psi~"(ψ[NR] - ψ[ER])"), x = "") +
+  scale_color_manual(values = base_colors, labels = legend_labels) + ylim(-0.3, 0.3) +
+  theme_classic(base_size = 14) +
+  theme(legend.position = "none", strip.text = element_text(face = "bold"), plot.title = element_text(face = "bold", hjust = 0.5)) +
+  coord_flip()
+
+
+```
+
+
+```{r, message=F, warning=F}
+
+box_data$Direction <- factor(box_data$Direction, levels = c("Distal", "Proximal"))
+box_data$Population <- factor(box_data$Population)
+
+direction_comparison <- list(c("Distal", "Proximal"))
+
+
+ggplot(box_data, aes(x = Direction, y = deltapsi, fill = Direction)) +
+  geom_boxplot(outlier.shape = NA, width = 0.5, alpha = 0.6, notch = TRUE) +
+  geom_jitter(width = 0.2, alpha = 0.7, color = "black", size = 1) +
+  stat_compare_means(comparisons = direction_comparison, method = "wilcox.test", label = "p.signif", label.y = 0.1) +
+  facet_wrap(~Population, ncol = 1, strip.position = "right") +
+  labs(title = "Δψ within French replicates", y = expression(Delta*psi~"(ψ[NR] - ψ[ER])"), x = "APA Direction") +
+  scale_color_manual(values = base_colors, labels = legend_labels) + ylim(-0.3, 0.3) +
+  theme_classic(base_size = 14) +
+  theme(
+    legend.position = "none",
+    strip.text = element_text(face = "bold"),
+    plot.title = element_text(face = "bold", hjust = 0.5)) +
+  coord_flip()
+
+```
+
+
+```{r, message=F, warning=F}
+ZI274_box <- ZI274_filtered %>%
+  mutate(Population = "Zambian_ZI274",
+         Direction = ifelse(deltapsi >= 0, "Distal", "Proximal"))
+
+ZI31_box <- ZI31_filtered %>%
+  mutate(Population = "Zambian_ZI31",
+         Direction = ifelse(deltapsi >= 0, "Distal", "Proximal"))
+
+ZI418_box <- ZI418_filtered %>%
+  mutate(Population = "Zambian_ZI418",
+         Direction = ifelse(deltapsi >= 0, "Distal", "Proximal"))
+
+
+box_data <- bind_rows(ZI274_box, ZI31_box, ZI418_box)
+
+
+box_data$Direction <- factor(box_data$Direction, levels = c("Distal", "Proximal"))
+box_data$Population <- factor(box_data$Population, levels = c("Zambian_ZI274", "Zambian_ZI31", "Zambian_ZI418"))
+
+# Define all pairwise comparisons you want
+comp_list <- list(
+  c("Zambian_ZI274", "Zambian_ZI31"),
+  c("Zambian_ZI274", "Zambian_ZI418"),
+  c("Zambian_ZI31", "Zambian_ZI418"))
+
+
+ggplot(box_data, aes(x = Population, y = deltapsi, fill = Population)) +
+  geom_boxplot(outlier.shape = NA, width = 0.5, alpha = 0.6, notch = TRUE) +
+  geom_jitter(width = 0.2, alpha = 0.6, color = "black", size = 1) +
+  stat_compare_means(comparisons = comp_list, method = "wilcox.test", 
+                     label = "p.signif", aes(group = Population)) +
+  facet_wrap(~Direction, ncol = 1, scales = "free_y", strip.position = "right") +
+  labs(title = "APA shift across Zambian replicates",
+       y = expression(Delta*psi~"(ψ[NR] - ψ[ER])"), x = "") +
+  scale_color_manual(values = base_colors)  +
+  theme_classic(base_size = 14) +
+  theme(
+    legend.position = "none",
+    strip.text = element_text(face = "bold"),
+    plot.title = element_text(face = "bold", hjust = 0.5)) +
+  coord_flip()
+```
+
+
+```{r, message=F, warning=F}
+box_data$Direction <- factor(box_data$Direction, levels = c("Distal", "Proximal"))
+box_data$Population <- factor(box_data$Population)
+
+direction_comparison <- list(c("Distal", "Proximal"))
+
+#Within_French_Psi
+ggplot(box_data, aes(x = Direction, y = deltapsi, fill = Direction)) +
+  geom_boxplot(outlier.shape = NA, width = 0.5, alpha = 0.6, notch = TRUE) +
+  geom_jitter(width = 0.2, alpha = 0.7, color = "black", size = 1) +
+  stat_compare_means(comparisons = direction_comparison, method = "wilcox.test", label = "p.signif", label.y = 0.1) +
+  facet_wrap(~Population, ncol = 1, strip.position = "right") +
+  labs(title = "Δψ within Zambian replicates", y = expression(Delta*psi~"(ψ[NR] - ψ[ER])"), x = "APA Direction") +
+ scale_color_manual(values = base_colors) + ylim(-0.3, 0.3) +
+  theme_classic(base_size = 14) +
+  theme(
+    legend.position = "none",
+    strip.text = element_text(face = "bold"),
+    plot.title = element_text(face = "bold", hjust = 0.5)) +
+  coord_flip()
+
+```
+
+
+Identify genes that show both APA and A3SS regulation, for each population.
+```{r}
+A3SS_Zambian= read.delim("~/Dropbox/3UTR/A3SS_Zambian.txt", header = T, sep = "\t", check.names = T)
+A3SS_French = read.delim("~/Dropbox/3UTR/A3SS_French.txt", header = T, sep = "\t", check.names = T)
+
+
+A3SS_Zambian_filtered = A3SS_Zambian |> 
+   filter(FDR<= 0.05)
+
+A3SS_French_filtered = A3SS_French |> 
+  filter(FDR <= 0.05)
+
+ZA_sig_apa
+FR_sig_apa
+
+```
+```{r}
+
+a3ss_za_ids <- unique(A3SS_Zambian$GeneID) 
+a3ss_fr_ids <- unique(A3SS_French$GeneID)
+apa_za_ids <- unique(ZA_collapsed$validated_id)
+apa_fr_ids <- unique(FR_sig_apa$validated_id)
+
+
+# Overlap between APA and A3SS genes
+overlap_za <- intersect(a3ss_za_ids, apa_za_ids)
+overlap_fr <- intersect(a3ss_fr_ids, apa_fr_ids)
+
+# Counts
+length(overlap_za)
+length(overlap_fr)
+
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
+
+```{r}
+```
+
