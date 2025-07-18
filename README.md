@@ -1,4 +1,4 @@
-# Labrat-pipeline. Please see here for details: https://github.com/TaliaferroLab/LABRAT 
+### Labrat-pipeline. Please see here for details: https://github.com/TaliaferroLab/LABRAT 
 
 First download the binary zip files from the LABRAT repository and install using 
 
