@@ -115,43 +115,38 @@ awk 'BEGIN{FS=OFS="\t"} NR>1 && $9 != "NA" && $9 < 0.05 {count++} END{print "Num
 python3 ../../LABRAT-master/LABRAT_dm6annotation1.py --mode calculatepsi --salmondir salmondir/ --sampconds sampconds --conditionA NR --conditionB ER --gff ../../LABRAT-master/annot/Drosophila_melanogaster.BDGP6.88.chr.gff3 --librarytype 3pseq 
 
 
-sample	condition
-FR109-ETOH-R1	FR1
-FR109-ETOH-R2	FR1
-FR109-ETOH-R3	FR1
-FR112N-ETOH-R1	FR1
-FR112N-ETOH-R2	FR1
-FR112N-ETOH-R3	FR1
-FR113N-ETOH-R1	FR1
-FR113N-ETOH-R2	FR1
-FR113N-ETOH-R3	FR1
-ZI274N-ETOH-R2	ZI
-ZI274N-ETOH-R3-562	ZI
-ZI274N-ETOH-R3-564	ZI
-ZI31N-ETOH-R1	ZI
-ZI31N-ETOH-R2	ZI
-ZI31N-ETOH-R3	ZI
-ZI418N-ETOH-R1	ZI
-ZI418N-ETOH-R2	ZI
-ZI418N-ETOH-R3	ZI
+Condition A samples: FR109NR2, FR109NR3
 
 
-sample	condition
-FR109-Non-R1	Non
-FR109-Non-R2	Non
-FR109-Non-R3	Non
-FR112N-Non-R1	Non
-FR112N-Non-R2	Non
-FR112N-Non-R3	Non
-FR113N-Non-R1	Non
-FR113N-Non-R2	Non
-FR113N-Non-R3	Non
-ZI274N-Non-R2-559	Non
-ZI274N-Non-R2-561	Non
-ZI274N-Non-R3	Non
-ZI31N-Non-R1	Non
-ZI31N-Non-R2	Non
-ZI31N-Non-R3	Non
-ZI418N-Non-R1	Non
-ZI418N-Non-R2	Non
-ZI418N-Non-R3	Non
+Condition B samples: FR109ER2, FR109ER3
+
+
+Condition A samples: FR112NNR1, FR112NNR2
+
+
+Condition B samples: FR112NER1, FR112NER2
+
+
+Condition A samples: FR113NNR2, FR113NNR3
+
+
+Condition B samples: FR113NER2, FR113NER3
+
+
+
+Condition A samples: ZI274NNR1, ZI274NNR2
+
+
+Condition B samples: ZI274NER1, ZI274NER2
+
+
+Condition A samples: ZI31NNR1, ZI31NNR3
+
+
+Condition B samples: ZI31NER1, ZI31NER3
+
+
+Condition A samples: ZI418NNR1, ZI418NNR2
+
+
+Condition B samples: ZI418NER1, ZI418NER2
