@@ -107,13 +107,13 @@ echo "LABRAT pipeline finished successfully! $(date)"
 
 ############
 
-python3 ../LABRAT-master/LABRAT_dm6annotation.py --mode calculatepsi --salmondir salmondir/ --sampconds sampconds --conditionA FR1 --conditionB ZI --gff ../LABRAT-master/annot/Drosophila_melanogaster.BDGP6.88.chr.gff3 --librarytype 3pseq 
+python3 ../../LABRAT-master/LABRAT_dm6annotation1.py --mode calculatepsi --salmondir salmondir/ --sampconds sampconds --conditionA NR --conditionB ER --gff ../../LABRAT-master/annot/Drosophila_melanogaster.BDGP6.88.chr.gff3 --librarytype 3pseq
 
-(labrat) george@george-workstation:/media/george/903d0d27-cc4e-4189-b0ae-1683a54b5cda/george/mel_3UTR/trimmed$ python3 ../LABRAT-master/LABRAT_dm6annotation.py --mode calculatepsi --salmondir salmondir/ --sampconds sampconds --conditionA FR1 --conditionB ZI --gff ../LABRAT-master/annot/Drosophila_melanogaster.BDGP6.88.chr.gff3 --librarytype 3pseq 
+awk 'BEGIN{FS=OFS="\t"} NR>1 && $9 != "NA" && $9 < 0.05 {count++} END{print "Number of genes with FDR < 0.05:", count}' LABRAT.psis.pval
 
-Condition A samples: FR109-ETOH-R1, FR109-ETOH-R2, FR109-ETOH-R3, FR112N-ETOH-R1, FR112N-ETOH-R2, FR112N-ETOH-R3, FR113N-ETOH-R1, FR113N-ETOH-R2, FR113N-ETOH-R3
 
-Condition B samples: ZI274N-ETOH-R2, ZI274N-ETOH-R3-562, ZI274N-ETOH-R3-564, ZI31N-ETOH-R1, ZI31N-ETOH-R2, ZI31N-ETOH-R3, ZI418N-ETOH-R1, ZI418N-ETOH-R2, ZI418N-ETOH-R3
+python3 ../../LABRAT-master/LABRAT_dm6annotation1.py --mode calculatepsi --salmondir salmondir/ --sampconds sampconds --conditionA NR --conditionB ER --gff ../../LABRAT-master/annot/Drosophila_melanogaster.BDGP6.88.chr.gff3 --librarytype 3pseq 
+
 
 sample	condition
 FR109-ETOH-R1	FR1
