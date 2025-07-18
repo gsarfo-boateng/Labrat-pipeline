@@ -19,27 +19,31 @@ awk 'BEGIN{FS=OFS="\t"} NR>1 && $9 != "NA" && $9 < 0.05 {count++} END{print "Num
 
 
 Condition A samples: FR109NR2, FR109NR3
+
 Condition B samples: FR109ER2, FR109ER3
 
 
 Condition A samples: FR112NNR1, FR112NNR2
+
 Condition B samples: FR112NER1, FR112NER2
 
 
 Condition A samples: FR113NNR2, FR113NNR3
+
 Condition B samples: FR113NER2, FR113NER3
 
 
 
 Condition A samples: ZI274NNR1, ZI274NNR2
+
 Condition B samples: ZI274NER1, ZI274NER2
 
 
 Condition A samples: ZI31NNR1, ZI31NNR3
+
 Condition B samples: ZI31NER1, ZI31NER3
 
 
 Condition A samples: ZI418NNR1, ZI418NNR2
-
 
 Condition B samples: ZI418NER1, ZI418NER2
