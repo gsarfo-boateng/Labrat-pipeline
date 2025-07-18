@@ -481,22 +481,22 @@ ZI31_LABRAT = left_join(ZI31_LABRAT, id_validation, by = c("Gene" = "submitted_i
 ZI418_LABRAT = left_join(ZI418_LABRAT, id_validation, by =c ("Gene" = "submitted_item"))
 
 FR109_LABRAT = FR109_LABRAT %>%
-  distinct(Gene, .keep_all = T)
+  distinct(validated_id, .keep_all = T)
 
 FR112_LABRAT = FR112_LABRAT %>%
-  distinct(Gene, .keep_all = T)
+  distinct(validated_id, .keep_all = T)
 
 FR113_LABRAT = FR113_LABRAT %>%
-  distinct(Gene, .keep_all = T)
+  distinct(validated_id, .keep_all = T)
 
 ZI274_LABRAT = ZI274_LABRAT %>%
-  distinct(Gene, .keep_all = T)
+  distinct(validated_id, .keep_all = T)
 
 ZI31_LABRAT = ZI31_LABRAT %>%
-  distinct(Gene, .keep_all = T)
+  distinct(validated_id, .keep_all = T)
 
 ZI418_LABRAT = ZI418_LABRAT %>%
-  distinct(Gene, .keep_all = T)
+  distinct(validated_id, .keep_all = T)
 
 
 
@@ -773,12 +773,10 @@ ggplot(combined_bar_data, aes(x = genetype, y = Count, fill = Population)) +
   geom_text(aes(label = Count), 
             position = position_dodge(width = 0.6), 
             vjust = -0.5, size = 5) +
-  labs(
-    title = "APA genetype distribution by Population",
+  labs(title = "APA genetype distribution by Population",
     x = "Genetype", y = "# of genes") +
   theme_classic(base_size = 14) +
-  theme(
-    panel.grid = element_blank(),
+  theme(panel.grid = element_blank(),
     axis.text = element_text(color = "black"),
     plot.title = element_text(face = "bold", hjust = 0.5)) +
   scale_fill_brewer(palette = "Set1")
@@ -826,18 +824,15 @@ ZI418_bar <- ZI418_filtered %>%
 # Combine all into one data frame
 all_genotype_bar_data <- bind_rows(
   FR109_bar, FR112_bar, FR113_bar,
-  ZI274_bar, ZI31_bar, ZI418_bar
-)
+  ZI274_bar, ZI31_bar, ZI418_bar)
 ggplot(all_genotype_bar_data, aes(x = Genotype, y = Count, fill = genetype)) +
   geom_bar(stat = "identity", width = 0.6) +
   geom_text(aes(label = Count), position = position_stack(vjust = 0.5), size = 4, color = "white") +
   labs(title = "APA Genetype Distribution by Genotype",
        x = "Genotype", y = "# of Genes", fill = "Genetype") +
   theme_classic(base_size = 14) +
-  theme(
-    axis.text = element_text(color = "black"),
-    plot.title = element_text(face = "bold", hjust = 0.5)
-  ) +
+  theme(axis.text = element_text(color = "black"),
+    plot.title = element_text(face = "bold", hjust = 0.5)) +
   scale_fill_brewer(palette = "Set2")
 
 ```
@@ -919,7 +914,7 @@ ggplot(box_data, aes(x = Population, y = deltapsi, fill = Population)) +
 
 
 ```{r}
-# Split by population
+
 FR_box <- box_data %>% filter(Population == "French")
 ZA_box <- box_data %>% filter(Population == "Zambian")
 
@@ -937,16 +932,13 @@ ggplot(box_data, aes(x = Direction, y = deltapsi, fill = Direction)) +
   stat_compare_means(method = "wilcox.test", aes(group = Direction), label = "p.signif") +
   facet_wrap(~Population, ncol = 1, strip.position = "right") +
   labs(y = "ΔΨ", x = "APA Direction", title = "Within-Population ΔΨ Differences") +
-  scale_color_manual(values = base_colors, labels = legend_labels)+
+  scale_color_manual(values = base_colors)+
   theme_classic(base_size = 14) + coord_flip()
 
 ```
 
 
 ```{r}
-library(dplyr)
-library(ggplot2)
-library(ggrepel)
 
 
 ZA_all <- bind_rows(ZI274_LABRAT, ZI31_LABRAT, ZI418_LABRAT)
@@ -1171,8 +1163,7 @@ ZA_volcano <- ZA_collapsed %>%
   mutate(sig_cat = case_when(
     FDR < fdr_thresh & deltapsi > 0 ~ "Proximal",
     FDR < fdr_thresh & deltapsi < 0 ~ "Distal",
-    TRUE ~ "Not significant"
-  ),
+    TRUE ~ "Not significant"),
   log10_pval = -log10(FDR),
   log10_pval = ifelse(is.infinite(log10_pval), NA, log10_pval))
 
@@ -1222,12 +1213,8 @@ p2 <- ggplot(volcano_high, aes(x = deltapsi, y = log10_pval, color = sig_cat, sh
   scale_y_continuous(breaks = c(50, 55, 60)) +
   labs(x = NULL, y = NULL) +
   theme_classic(base_size = 14) +
-  theme(
-    axis.text.x = element_blank(),
-    axis.ticks.x = element_blank(),
-    legend.position = "none",
-    plot.margin = margin(b = 0)
-  )
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(), legend.position = "none",
+    plot.margin = margin(b = 0))
 
 
 
@@ -1414,7 +1401,7 @@ apa_dist_data <- bind_rows(FR_sig_apa, ZA_sig_apa) %>%
 
 
 
-base_colors <- c("Proximal" = "pink", "Distal" = "darkblue")
+base_colors <- c("Proximal" = "#fa8775", "Distal" = "#0000ff")
 
 ggplot(apa_dist_data, aes(x = interpolyAdist, y = interaction(Genotype, APA_Direction), fill = APA_Direction)) +
   geom_density_ridges(scale = 1.2, alpha = 0.8, rel_min_height = 0.01, color = "black") +
@@ -1468,9 +1455,9 @@ table(private_apa$Population, private_apa$genetype)
 private_apa$interpolyAdist <- as.numeric(private_apa$interpolyAdist)
 
 
-private_apa %>%
-  filter(!is.na(interpolyAdist)) %>%
-  group_by(Population, ChangeType) %>%
+private_apa |>
+  filter(!is.na(interpolyAdist)) |>
+  group_by(Population, ChangeType) |>
   summarise(
     mean_distance = round(mean(interpolyAdist, na.rm = TRUE), 1),
     median_distance = round(median(interpolyAdist, na.rm = TRUE), 1),
@@ -1481,8 +1468,14 @@ private_apa %>%
   filter(genetype == "TUTR") %>%
   count(Population, ChangeType)
 
+private_apa %>%
+  filter(genetype == "ALE") %>%
+  count(Population, ChangeType)
 
 
+private_apa %>%
+  filter(genetype == "mixed") %>%
+  count(Population, ChangeType)
 ```
 
 
@@ -1520,49 +1513,37 @@ shared_opposite_direction_unique <- shared_opposite_direction %>%
 
 ```
 
-
 ```{r}
-library(ggplot2)
-library(ggpubr)
-library(dplyr)
 
-# Combine APA data
-FR_sig_apa <- FR_sig_apa %>% mutate(Population = "French")
-ZA_sig_apa <- ZA_sig_apa %>% mutate(Population = "Zambian")
-apa_combined <- bind_rows(FR_sig_apa, ZA_sig_apa)
+private_apa <- private_apa %>%
+  mutate(ChangeType = case_when(
+    deltapsi > 0 ~ "Distal",
+    deltapsi < 0 ~ "Proximal",
+    TRUE ~ NA_character_))
 
-# Run Wilcoxon test manually
-test <- wilcox.test(interpolyAdist ~ Population, data = apa_combined)
-pval_text <- paste0("Wilcoxon p = ", signif(test$p.value, 3))
 
-# Add to plot
-ggplot(apa_combined, aes(x = interpolyAdist, fill = Population)) +
-  geom_density(alpha = 0.5, adjust = 1.2) +
-  labs(
-    title = "Distribution of APA sites (FDR < 0.05)",
-    x = "Distance Between APA Sites (nt)",
-    y = "Density",
-    subtitle = pval_text) +
-  scale_fill_brewer(palette = "Set1") +
-  theme_classic(base_size = 14)
-```
+# Genes unique to each population
+FR_private <- FR_sig_apa %>%
+  filter(!(validated_id %in% ZA_sig_apa$validated_id)) %>%
+  mutate(Population = "French")
 
-```{r}
-library(tidyr)
+ZA_private <- ZA_sig_apa %>%
+  filter(!(validated_id %in% FR_sig_apa$validated_id)) %>%
+  mutate(Population = "Zambian")
 
-# Example: split txids into separate columns per APA site
-ZI_posfactors_expanded <- ZI_posfactors %>%
-  separate(txids, into = paste0("Site", 1:5), sep = "_", fill = "right")
+# Combine
+private_apa <- bind_rows(FR_private, ZA_private)
 
-# Optional: count transcripts per site
-ZI_posfactors_expanded$Site1_tx_count <- sapply(strsplit(ZI_posfactors_expanded$Site1, ","), length)
+private_apa %>%
+  filter(!is.na(interpolyAdist)) %>%
+  group_by(Population, ChangeType) %>%
+  summarise(
+    mean_distance = round(mean(interpolyAdist, na.rm = TRUE), 1),
+    median_distance = round(median(interpolyAdist, na.rm = TRUE), 1),
+    sd_distance = round(sd(interpolyAdist, na.rm = TRUE), 1),
+    .groups = "drop")
 
 ```
-
-
-
-
-
 
 
 
@@ -1584,145 +1565,8 @@ A Δψ < 0 → increased usage of the distal site (lengthened UTR)
 
 With more than 2 sites, Δψ becomes a weighted average across multiple sites, and it's harder to biologically interpret the direction of the shift.
 
-```{r}
-
-FR_volcano_annotated <- FR_volcano_annotated %>%
-  mutate(Population = "French")
-
-ZA_volcano_annotated <- ZA_volcano_annotated %>%
-  mutate(Population = "Zambian")
-
-apa_2site_sig <- bind_rows(FR_volcano_annotated, ZA_volcano_annotated) %>%
-  dplyr::filter(FDR < 0.05, numberofposfactors > 1, !is.na(interpolyAdist)) %>%
-  mutate(interpolyAdist = as.numeric(interpolyAdist))
-
-# Longest APA gene
-longest_apa <- apa_2site_sig %>%
-  arrange(desc(interpolyAdist)) %>%
-  dplyr::slice(1)
-
-# Shortest APA gene
-shortest_apa <- apa_2site_sig %>%
-  arrange(interpolyAdist) %>%
-  dplyr::slice(1)
-
-# Annotate APA direction
-annotated_extremes <- bind_rows(longest_apa, shortest_apa) %>%
-  mutate(APA_shift = case_when(
-    deltapsi > 0 ~ "Shortened",
-    deltapsi < 0 ~ "Lengthened",
-    TRUE ~ "Mixed")) %>%
-  dplyr::select(Gene, current_symbol, Population, deltapsi, APA_shift, interpolyAdist, genetype)
 
 
-```
-
-
-
-```{r}
-# Combine annotated datasets and set population
-FR_volcano_annotated <- FR_volcano_annotated %>%
-  mutate(Population = "French")
-
-ZA_volcano_annotated <- ZA_volcano_annotated %>%
-  mutate(Population = "Zambian")
-
-# Filter for significant APA-regulated genes with >1 APA site and defined distance
-apa_sig_all <- bind_rows(FR_volcano_annotated, ZA_volcano_annotated) %>%
-  dplyr::filter(FDR < 0.05, numberofposfactors > 1, !is.na(interpolyAdist)) %>%
-  mutate(
-    interpolyAdist = as.numeric(interpolyAdist),
-    APA_shift = case_when(
-      deltapsi > 0 ~ "Shortened",
-      deltapsi < 0 ~ "Lengthened",
-      TRUE ~ "Unchanged"))
-
-# Summarize direction of APA shift by population
-apa_summary_all <- apa_sig_all %>%
-  group_by(Population, APA_shift) %>%
-  summarise(
-    n_genes = n(),
-    mean_deltapsi = round(mean(deltapsi, na.rm = TRUE), 3),
-    mean_APA_dist = round(mean(interpolyAdist, na.rm = TRUE), 1),
-    .groups = "drop")
-
-print(apa_summary_all)
-
-```
-
-```{r}
-
-FR_sig <- FR_volcano_annotated %>%
-  dplyr::filter(FDR < 0.05) %>%
-  dplyr::select(Gene, deltapsi, pval, validated_id, current_symbol, FDR, deltapsi,genetype, Population,numberofposfactors,interpolyAdist)
-
-ZA_sig <- ZA_volcano_annotated %>%
-  dplyr::filter(FDR < 0.05) %>%
-  dplyr::select(Gene, deltapsi, pval, validated_id, current_symbol, FDR, deltapsi,genetype, Population,numberofposfactors,interpolyAdist)
-
-# Get sets of validated IDs
-fr_ids <- unique(FR_sig$validated_id)
-za_ids <- unique(ZA_sig$validated_id)
-
-# Assign change type
-FR_sig <- FR_sig %>%
-  mutate(ChangeType = case_when(
-    validated_id %in% za_ids ~ "Shared",
-    TRUE ~ "French-only"))
-
-ZA_sig <- ZA_sig %>%
-  mutate(ChangeType = case_when(
-    validated_id %in% fr_ids ~ "Shared",
-    TRUE ~ "Zambian-only"))
-
-FR_sig_dedup <- FR_sig %>% 
-  distinct(validated_id, .keep_all = TRUE)
-ZA_sig_dedup <- ZA_sig %>% 
-  distinct(validated_id, .keep_all = TRUE)
-
-# Combine
-private_apa <- bind_rows(FR_sig_dedup, ZA_sig_dedup)
-
-
-
-```
-
-
-
-
-```{r}
-library(ggplot2)
-library(dplyr)
-# Combine
-private_apa <- bind_rows(FR_sig_dedup, ZA_sig_dedup)
-# Clean up and prep data
-dot_data <- private_apa %>%
-  dplyr::filter(!is.na(deltapsi), !is.na(current_symbol), !is.na(ChangeType)) %>%
-  mutate(interpolyAdist = as.numeric(interpolyAdist)) %>%
-  arrange(desc(abs(deltapsi))) %>%
-  distinct(current_symbol, .keep_all = TRUE)  # One dot per gene
-
-# Optional: limit number of genes (e.g. top 50 by |Δψ|)
-dot_data <- dot_data %>% slice_max(abs(deltapsi), n = 50)
-
-# Make validated_id a factor ordered by deltapsi
-dot_data$current_symbol <- factor(dot_data$current_symbol, levels = dot_data$current_symbol[order(dot_data$deltapsi)])
-
-# Dot plot
-ggplot(dot_data, aes(x = deltapsi, y = current_symbol, color = ChangeType, size = interpolyAdist)) +
-  geom_point(alpha = 0.8) +
-  scale_color_brewer(palette = "Set1") +
-  scale_size_continuous(range = c(2, 6), name = "APA Distance (nt)") +
-  labs(title = "APA changes in sign genes by Population",
-    x = expression(Delta*psi~"(ψ[NR] - ψ[ER])"),
-    y = "Gene",
-    color = "Change Type") +
-  theme_classic(base_size = 14) +
-  theme(axis.text.y = element_text(size = 7),
-    legend.position = "right",
-    plot.title = element_text(face = "bold", hjust = 0.5))
-
-```
 ```{r}
 private_apa <- bind_rows(
   FR109_sig,
@@ -1760,45 +1604,6 @@ ggplot(dot_data, aes(x = deltapsi, y = current_symbol, color = ChangeType, size 
 ```
 
 
-```{r}
-private_apa <- private_apa %>%
-  group_by(validated_id) %>%
-  summarise(
-    deltapsi = mean(deltapsi, na.rm = TRUE),
-    FDR = mean(FDR, na.rm = TRUE),
-    current_symbol = first(current_symbol),
-    genetype = first(genetype),
-    ChangeType = first(ChangeType),
-    .groups = "drop") %>%
-  mutate(sig_cat = case_when(
-    FDR < 0.05 & deltapsi > 0 ~ "Distal",
-    FDR < 0.05 & deltapsi < 0 ~ "Proximal",
-    TRUE ~ "Not significant"))
-
-
-
-private_apa %>%
-  dplyr::filter(!is.na(sig_cat), sig_cat %in% c("Distal", "Proximal")) %>%
-  dplyr::count(ChangeType, sig_cat, genetype) %>%
-  ggplot(aes(x = ChangeType, y = n, fill = sig_cat)) +
-  geom_bar(stat = "identity", position = position_dodge(width = 0.7)) +
-  geom_text(aes(label = n), 
-            position = position_dodge(width = 0.7),
-            vjust = -0.3, size = 4) +
-  facet_wrap(~ genetype) +
-  labs(title = "Direction of APA Change by Genetype",
-    y = "Number of Genes",
-    x = "Change Type") +
-  scale_fill_brewer(palette = "Set1") +
-  theme_classic(base_size = 14) + theme(axis.text.x=element_text(angle=45, hjust=1))
-
-
-```
-
-
-
-
-
 
 
 ```{r}
@@ -1826,8 +1631,7 @@ ZI418_genes <- ZI418_sig %>% filter(!is.na(genetype)) %>%
 # Combine all genotypes
 combined_genes <- bind_rows(
   FR109_genes, FR112_genes, FR113_genes,
-  ZI274_genes, ZI31_genes, ZI418_genes
-)
+  ZI274_genes, ZI31_genes, ZI418_genes)
 
 # Count how many genotypes each gene is found in, per genetype
 shared_counts <- combined_genes %>%
@@ -1840,21 +1644,6 @@ shared_counts <- combined_genes %>%
 genetype_sharing <- shared_counts %>%
   count(genetype, n_genotypes) %>%
   rename(`Number of Genotypes` = n_genotypes, `Number of Genes` = n)
-
-# Plot
-ggplot(genetype_sharing, aes(x = factor(`Number of Genotypes`), y = `Number of Genes`, fill = genetype)) +
-  geom_bar(stat = "identity", position = position_dodge(width = 0.7)) +
-  geom_text(aes(label = `Number of Genes`),
-            position = position_dodge(width = 0.7),
-            vjust = -0.5, size = 4) +
-  labs(
-    title = "Gene Sharing Across Genotypes by Genetype",
-    x = "# Genotypes a Gene is Shared Across",
-    y = "# Genes",
-    fill = "Genetype"
-  ) +
-  scale_fill_brewer(palette = "Set2") +
-  theme_classic(base_size = 14)
 
 ```
 
@@ -1881,78 +1670,6 @@ private_apa %>%
 ```
 
 
-
-
-
-
-
-```{r}
-library(dplyr)
-
-# Ensure interpolyAdist is numeric
-private_apa <- private_apa %>%
-  mutate(interpolyAdist = as.numeric(interpolyAdist))
-
-# Filter for 2-site APA events that are private and significant
-private_stats <- private_apa %>%
-  dplyr::filter(
-    FDR < 0.05,
-    numberofposfactors == 2,
-    !is.na(interpolyAdist)
-  ) %>%
-  mutate(
-    APA_shift = case_when(
-      deltapsi > 0 ~ "Shortened",
-      deltapsi < 0 ~ "Lengthened",
-      TRUE ~ NA_character_
-    )
-  ) %>%
-  dplyr::filter(!is.na(APA_shift))
-
-# 1. Mean distances by APA shift and population
-private_means <- private_stats %>%
-  group_by(Population, APA_shift) %>%
-  summarise(
-    mean_dist = round(mean(interpolyAdist), 1),
-    max_dist = max(interpolyAdist),
-    gene_max = current_symbol[which.max(interpolyAdist)],
-    .groups = "drop")
-
-# 2. Output for manual inspection
-private_means
-
-```
-
-
-```{r}
-# Make sure interpolyAdist is numeric and APA shift is defined
-shared_apa <- private_apa %>%
-  dplyr::filter(
-    ChangeType == "Shared",
-    FDR < 0.05,
-    numberofposfactors == 2,
-    !is.na(interpolyAdist)) %>%
-  mutate(
-    interpolyAdist = as.numeric(interpolyAdist),
-    APA_shift = case_when(
-      deltapsi > 0 ~ "Shortened",
-      deltapsi < 0 ~ "Lengthened",
-      TRUE ~ NA_character_)) %>%
-  dplyr::filter(!is.na(APA_shift))
-
-# Calculate mean and max APA distance per population and APA direction
-shared_means <- shared_apa %>%
-  group_by(Population, APA_shift) %>%
-  summarise(
-    mean_dist = round(mean(interpolyAdist, na.rm = TRUE), 1),
-    max_dist = max(interpolyAdist, na.rm = TRUE),
-    gene_max = current_symbol[which.max(interpolyAdist)],
-    .groups = "drop")
-
-shared_means
-
-
-```
 
 LABRAT.py --conditionA Control --conditionB Ethanol
 Then:
@@ -2029,7 +1746,7 @@ ggplot(box_data, aes(x = Direction, y = deltapsi, fill = Direction)) +
   stat_compare_means(comparisons = direction_comparison, method = "wilcox.test", label = "p.signif", label.y = 0.1) +
   facet_wrap(~Population, ncol = 1, strip.position = "right") +
   labs(title = "Δψ within French replicates", y = expression(Delta*psi~"(ψ[NR] - ψ[ER])"), x = "APA Direction") +
-  scale_color_manual(values = base_colors, labels = legend_labels) + ylim(-0.3, 0.3) +
+  scale_fill_manual(values = base_colors, labels = legend_labels) + ylim(-0.3, 0.3) +
   theme_classic(base_size = 14) +
   theme(
     legend.position = "none",
@@ -2098,7 +1815,7 @@ ggplot(box_data, aes(x = Direction, y = deltapsi, fill = Direction)) +
   stat_compare_means(comparisons = direction_comparison, method = "wilcox.test", label = "p.signif", label.y = 0.1) +
   facet_wrap(~Population, ncol = 1, strip.position = "right") +
   labs(title = "Δψ within Zambian replicates", y = expression(Delta*psi~"(ψ[NR] - ψ[ER])"), x = "APA Direction") +
- scale_color_manual(values = base_colors) + ylim(-0.3, 0.3) +
+ scale_fill_manual(values = base_colors) + ylim(-0.3, 0.3) +
   theme_classic(base_size = 14) +
   theme(
     legend.position = "none",
@@ -2121,16 +1838,29 @@ A3SS_Zambian_filtered = A3SS_Zambian |>
 A3SS_French_filtered = A3SS_French |> 
   filter(FDR <= 0.05)
 
-ZA_sig_apa
-FR_sig_apa
 
 ```
+
 ```{r}
+all_sig_genes_FR <- bind_rows(FR109_filtered, FR112_filtered,FR113_filtered)
+
+all_sig_genes_ZA <- bind_rows(ZI274_filtered, ZI31_filtered,ZI418_filtered)
+
+
+
+all_sig_genes_FR = all_sig_genes_FR %>%
+  distinct(validated_id, .keep_all = T)
+
+all_sig_genes_ZA = all_sig_genes_ZA %>%
+  distinct(validated_id, .keep_all = T)
+
 
 a3ss_za_ids <- unique(A3SS_Zambian$GeneID) 
 a3ss_fr_ids <- unique(A3SS_French$GeneID)
-apa_za_ids <- unique(ZA_collapsed$validated_id)
-apa_fr_ids <- unique(FR_sig_apa$validated_id)
+apa_za_ids <- unique(all_sig_genes_ZA$Gene)
+apa_fr_ids <- unique(all_sig_genes_FR$validated_id)
+
+
 
 
 # Overlap between APA and A3SS genes
