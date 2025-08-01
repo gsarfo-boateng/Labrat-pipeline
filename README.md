@@ -3,7 +3,7 @@
 First download the binary zip files from the LABRAT repository and install using 
 
 python3 setup.py install
-1. down the Drosophila_melanogaster.BDGP6.88.chr.gff3.db, Drosophila_melanogaster.BDGP6.88.chr.gff3 and Drosophila_melanogaster.BDGP6.genome.fa.gz from the LABRAT github page: https://github.com/TaliaferroLab/LABRAT
+1. download the Drosophila_melanogaster.BDGP6.88.chr.gff3.db, Drosophila_melanogaster.BDGP6.88.chr.gff3 and Drosophila_melanogaster.BDGP6.genome.fa.gz from the LABRAT github page: https://github.com/TaliaferroLab/LABRAT
 
 2. 
 python3 /media/judy/george/mel_3UTR/LABRAT-master/LABRAT_dm6annotation1.py --mode makeTFfasta --gff /media/judy/george/mel_3UTR/LABRAT-master/annot/Drosophila_melanogaster.BDGP6.88.chr.gff3 --genomefasta Drosophila_melanogaster.BDGP6.genome.fa.gz --lasttwoexons --librarytype 3pseq
